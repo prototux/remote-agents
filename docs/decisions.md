@@ -329,7 +329,8 @@ Implemented in agentd (2026-11-22, server only; the app is a separate step). Cho
   buffer after the grace period; the tracker keeps a per-agent summary only, capped at 256 agents and 64 runs.
 - State rules: workflow agent done at its journal `result`; Agent tool subagent done at a final `end_turn`
   answer; failed when its run ended without its result, or when the session has no process and nothing moved
-  for 45 min (longer than a capped 30 min build). The run's summary file overrides counts once it exists; the
+  for 45 min (longer than a capped 30 min build). Revised after review (2026-11-22, see below): also from the
+  parent side, and bounded while the session lives. The run's summary file overrides counts once it exists; the
   script file name gives the run's name before.
 - Not verified on real data: `agent_id` in hook input from a subagent and the hosted `can_use_tool` mapping
   (both from the docs; no capture yet).
@@ -351,7 +352,8 @@ App side of S11 (2026-11-22). Choices made inside S11:
   screen shows nothing if `/messages` does not echo `agentId`: a server without S11 ignores the parameter and
   would page the session's own transcript.
 - Running agents or runs keep a watched session's stream and the foreground service on (a background workflow
-  runs while the session is idle). Bounded by agentd's 45 min stale rule. The ongoing notification adds the
+  runs while the session is idle). Bounded by agentd's end rules (task notification, then 45 min stale, 2 h
+  while the session's process lives). The ongoing notification adds the
   agents line under the session and is re-posted only when its text changes.
 - Rejected: one combined Transcript+agents state (agent updates would churn every transcript consumer); polling
   `/agents` (the stream already carries changes; `/agents` is read on open and when the panel opens).
@@ -362,3 +364,28 @@ App side of S11 (2026-11-22). Choices made inside S11:
   127.0.0.1:3458 against the owner's session (`LiveServerTest`, `ET_SESSION`): 14 agents, 3 runs, three agent
   transcripts paged, all 17 states over `agents=1` with null ids. OkHttp reads the empty `id:` line as no id.
 - Not verified: the UI on a device (no emulator by rule); a real subagent permission request end to end.
+
+Review fixes to S11 (2026-11-22). Choices made inside S11, checked against the owner's data (read-only):
+- An agent stopped inside a terminal that stays open used to stay `running` (no end_turn, and the stale rule
+  was off while the session had a process). All 457 real Agent tool calls are launched async (the parent's
+  tool_result is "Async agent launched" at once), so the parent's tool_result says nothing; the end comes from
+  the parent's `<task-notification>` (`<task-id>` = agent id, status completed / failed / killed / stopped,
+  in `queue-operation` and `user` records; a record must start with it, so a quoted one in a tool result does
+  not count). A write after the notification means the agent was resumed (SendMessage). Workflows: the
+  notification's task id is not the run id; the Workflow tool's `toolUseResult` maps `taskId` to `runId`.
+- Stale bound now also applies with a live session, at 2 h (an agent may wait for a permission answer without
+  writing); journal-only agents and agent-less runs use the journal's mtime as activity.
+- Retried and resumed runs (3 of 58 real journals have a `started` repeating a `key`): a later `started` of the
+  same key hides the earlier agent; once the summary exists, agents not in its `workflowProgress` are hidden
+  (an aborted attempt's, e.g. 17 started for 11 counted); a summary older than the journal is ignored (in all
+  55 real summaries the summary is written 3 ms to 3.5 s after the journal). Rejected: a `superseded` state
+  (a new public value) and matching retries by label (labels repeat in fan-outs).
+- Agent transcript buffers hold 5,000 messages (10x a session's) and `/messages?agentId=` says
+  `truncated:true` when the start is gone; the app shows that. Rejected: paging agent transcripts from the
+  file (a second paging path for one rare case).
+- `/events?agents=1` for a session not found yet keeps retrying the tracker (every 5 s) while the client stays;
+  `provider.ErrNotFound` is now a retryable error for the hub, and "no tracker" (pi) is final.
+- App: `/agents` read while the stream is open keeps what the stream updated meanwhile
+  (`AgentsState.refreshedWith`); `/info` is asked again before each stream reconnect (last answer kept when it
+  is unreachable), so a rollback to even-terminal stops `agents=1`; an agent screen checks agentd first and
+  retries its first page instead of falling through to `/events?agentId=`.
