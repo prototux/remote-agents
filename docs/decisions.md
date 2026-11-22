@@ -340,3 +340,25 @@ Implemented in agentd (2026-11-22, server only; the app is a separate step). Cho
   a scratch copy of agentd-decisions with its last journal result and summary appended live.
 - Known gap: an agent transcript's harness notification records (`[SYSTEM NOTIFICATION …]` user text) parse
   as a new prompt, so that agent's stream shows an extra result/prompt pair (the main parser does the same).
+
+App side of S11 (2026-11-22). Choices made inside S11:
+- agentd is detected per client from `/info` `server.name == "agentd"` (agentd puts `server` at the top level;
+  `extra.server` is read too). Only then does the app pass `agents=1` and call `/agents`; an unreachable `/info`
+  counts as "not agentd" and is asked again next time. even-terminal sessions are unchanged.
+- Agent state lives in its own reducer (`AgentsState`, latest wins per agent and run), not in `Transcript`, which
+  ignores `agent_update`/`workflow_update`. An agent whose run is not known yet gets a placeholder run.
+- Agent transcripts are a cold flow per open agent screen (`/messages?agentId=` then `/events?agentId=`). The
+  screen shows nothing if `/messages` does not echo `agentId`: a server without S11 ignores the parameter and
+  would page the session's own transcript.
+- Running agents or runs keep a watched session's stream and the foreground service on (a background workflow
+  runs while the session is idle). Bounded by agentd's 45 min stale rule. The ongoing notification adds the
+  agents line under the session and is re-posted only when its text changes.
+- Rejected: one combined Transcript+agents state (agent updates would churn every transcript consumer); polling
+  `/agents` (the stream already carries changes; `/agents` is read on open and when the panel opens).
+- Bug found by the live check and fixed: `connectOnce` used `trySend` into a 64-item `callbackFlow` buffer and
+  silently dropped frames when OkHttp's reader got ahead (a 437-message replay lost about 290 messages and 14
+  of 17 agent states). Now `trySendBlocking`, with a regression test. This affected main transcripts too.
+- Verified: real agentd answers as fixtures (agentd serving its anonymised test data); live, the rebuilt agentd on
+  127.0.0.1:3458 against the owner's session (`LiveServerTest`, `ET_SESSION`): 14 agents, 3 runs, three agent
+  transcripts paged, all 17 states over `agents=1` with null ids. OkHttp reads the empty `id:` line as no id.
+- Not verified: the UI on a device (no emulator by rule); a real subagent permission request end to end.
