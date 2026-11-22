@@ -149,15 +149,15 @@ Hosting, hooks and terminal delivery, on the formats verified in `server-protoco
   --verbose --permission-prompt-tool stdio` plus `--session-id <new uuid>` / `--resume <id>` /
   `--resume <id> --fork-session`, `--model` when `/prompt` has `model`. One turn at a time: agentd queues later
   prompts (notification "Queued") and sends the next on `result`; interrupt is the `interrupt` control request
-  and also drops the queue and cancels pending approvals. Hosted approvals have no timeout (the phone is the
-  only UI). `costUsd` is the turn's increase of the cumulative `total_cost_usd`; `num_turns:0` task-notification
+  and also drops the queue and cancels pending approvals. Hosted approvals are denied after
+  `--approval-timeout` (S8, below). `costUsd` is the turn's increase of the cumulative `total_cost_usd`; `num_turns:0` task-notification
   results (stale background tasks after `--resume`) are ignored. The process runs in its own process group with
   the parent session's `CLAUDE*` session variables removed (agentd may be started from a Claude Code shell).
   An idle process is ended after `--hosted-idle` (30 min; 0 = never) by closing stdin, which also ends its
   background tasks; the next prompt resumes it. Shutdown closes stdin, then SIGTERMs the group after 5 s.
 - **Ids**: a new session gets a random UUID; a fork's id comes from `system/init` (up to 60 s) and `/prompt`
-  returns it. `force:true` on a terminal session hosts it anyway (two processes on one transcript, logged as a
-  warning); `fork:true` never touches the original.
+  returns it. `force:true` never hosts a terminal session (S8, below); `fork:true` never
+  touches the original.
 - **No double display**: while a session is hosted its process output is the source and the transcript
   follower only advances its offset; when the process ends the follower catches up silently, and a follower
   created later for a session hosted in this run skips the backlog (the buffer already has it). Resuming loads
@@ -256,3 +256,29 @@ The app uses agentd's extensions and keeps working against plain even-terminal (
 | S8 | Hosted safety | Permission requests and questions in hosted sessions are **denied after a timeout** (default 30 min, configurable); hosted pi loads an **approval extension** so tools ask the phone; `force:true` **never** hosts a session that is live in a terminal (409 `session_live`); the additive wire extensions (toolUseId, 409 `request_not_pending`, decision `expired`, per-session ids) are accepted. |
 | S9 | Cutover | Now: install the hooks (with backup), stop even-terminal, run agentd on port 3456 as a systemd user service. |
 | S10 | Defaults accepted | Hook secret through `agentd hooks relay` (0600 file, not in settings.json); refuse to start without a token; network mode `expose` refuses to start; `/info` unchanged; app skips the resume warning when even-terminal already hosts the session, no "force" button, shows when a terminal session's approvals can't reach the phone. |
+
+### Implemented (2026-11-22)
+
+- **S6**: `--session-providers` (comma list, default `claude,pi`; env `AGENTD_SESSION_PROVIDERS`, flag wins) sets
+  what `/sessions` merges without `?provider=`. Names are checked at start against the served adapters (aliases
+  allowed, `claude-sync` counts as `claude`); an unknown or planned one (`codex`) stops `agentd serve` with exit 2
+  rather than giving a silently empty list. Rejected: checking per request (the error would reach the phone).
+- **S8 timeout**: `--approval-timeout` (default `30m`, `0` = never) is a field of the approval request, not a
+  context deadline, so a host can tell "timed out: deny" from "cancelled elsewhere: say nothing". On expiry the
+  broker publishes `permission_result` decision `expired` (or an empty `question_answer`) and a notification
+  "The phone did not answer within 30m, so the request was denied"; Claude gets a `can_use_tool` deny with that
+  message, pi gets `confirmed:false` (other dialogs `cancelled:true`). Terminal hook waits keep `--hook-wait`.
+- **S8 pi extension**: `server/internal/pi/approval-extension.ts`, embedded with `go:embed`, written to
+  `~/.config/agentd/pi-approval.ts` (dir 0700, file 0600, temp file + rename, rewritten when the bytes differ)
+  before every hosted pi start and passed with `-e`. Hook `tool_call` (pi `extensions.md`) on `bash`,
+  `powershell` (pi's shell tool on Windows), `write` and `edit`; `ctx.ui.confirm(<tool>, <command or path>,
+  {signal})`; anything but a confirm blocks the call (`{block:true, reason}`), as does a missing UI. agentd reads
+  the title back as the tool name and the message as `command`/`path`, so the phone shows it like a Claude tool
+  call. A hosted pi refuses to start when the file cannot be written. Other tools (`read`, `grep`, `find`, `ls`,
+  extension tools) are not asked about. Terminal pi (`agentd pi`) does not load it.
+- **S8 force**: `provider.Hostable`: `terminal` is never hosted (409 `session_live` with or without force),
+  `unknown` only with force, `ended`/`hosted` always. `fork` is unchanged. No adapter reports `unknown` yet.
+- **S9**: `server/contrib/agentd.service` (user unit, `%h/.local/bin/agentd serve`, `Restart=on-failure`,
+  `After=network-online.target`, PATH with `~/.local/bin`, no flags or secrets); steps in `server/README.md`
+  "Install as a service". Not installed.
+- **Open**: S10 says network mode `expose` refuses to start; `config.Parse` still maps it to loopback.
