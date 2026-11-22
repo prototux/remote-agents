@@ -221,3 +221,28 @@ Fixes from the security and correctness review of steps 1-2. Choices inside the 
 - **Open (owner)**: `/sessions` without `?provider=` still merges claude and pi; NothingEven never sends the
   parameter and was built against single-provider lists. Options: default to the configured provider (merged only
   with `?provider=all`), or keep the merge after checking NothingEven tolerates `provider:"pi"`.
+
+## Remote Agents on agentd (2026-11-22)
+
+The app uses agentd's extensions and keeps working against plain even-terminal (absent fields = old behaviour).
+
+- **`:api`**: `SessionSummary` and `StatusResponse` parse `liveness`, `drive`, `canApprove`; `Reach` (pure,
+  JVM-tested) turns them into the list label, the session banner, watch-only and the resume warning.
+  `ApiException` also reads agentd's `{"error","code"}` shape, and 409 `session_live` is a
+  `SessionLiveException`. `prompt()` takes `fork`/`force`, sent only when true.
+- **List**: "in terminal · tmux|inbox|after the turn|watch only", "hosted", "ended" next to the provider;
+  nothing for even-terminal or `unknown`.
+- **Session screen**: a banner for terminal sessions ("Running in a terminal: messages are typed into it via
+  tmux" / "… arrive in it as a message from another Claude session" / "… are delivered when the turn ends" /
+  "watch only"). Watch-only disables the prompt box (no send, interrupt, quick replies or dictation). The
+  liveness comes from the list at once and from `/status` when the stream opens and after each prompt; a
+  `session_live` answer re-reads it.
+- **First prompt to an existing session** asks first when it would resume the session in a new process: liveness
+  `ended` or `unknown`, or no liveness at all (even-terminal, which cannot see terminal sessions; this is the
+  fork the owner hit with bd72f82f). Asked once per session per app process; sessions the app started or forked
+  are never asked. Notification replies are not asked (they only exist for sessions already live here).
+- **Fork**: "Fork into a new session" (menu, the watch-only banner, and "Fork instead" in the resume dialog) only
+  when the server reports liveness, i.e. agentd; even-terminal would ignore `fork` and resume the original.
+  The fork opens as a new watched session titled "Fork: <title>".
+- **Not used yet**: `force` (no UI: it writes one transcript from two processes), `drive` selection, `canApprove`
+  in the UI (parsed only).

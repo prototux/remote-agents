@@ -53,11 +53,14 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import net.prototux.remoteagents.Container
 import net.prototux.remoteagents.api.Format
+import net.prototux.remoteagents.api.Liveness
 import net.prototux.remoteagents.api.Providers
+import net.prototux.remoteagents.api.Reach
 import net.prototux.remoteagents.api.ServerInfo
 import net.prototux.remoteagents.api.SessionState
 import net.prototux.remoteagents.api.SessionSummary
 import net.prototux.remoteagents.data.SessionKey
+import net.prototux.remoteagents.data.SessionMeta
 import net.prototux.remoteagents.ui.theme.tokens
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -155,7 +158,11 @@ fun SessionsScreen(
                         Modifier.padding(tokens.screenMargin), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 items(shown, key = { it.id }) { s ->
-                    SessionRow(s, container.hub.isWatched(SessionKey(serverId, s.id))) { onOpen(s) }
+                    SessionRow(s, container.hub.isWatched(SessionKey(serverId, s.id))) {
+                        // The session screen knows the liveness at once, before its own /status answers.
+                        container.hub.note(SessionKey(serverId, s.id), SessionMeta(s.title, s.cwd, s.provider, Reach.of(s)))
+                        onOpen(s)
+                    }
                     HorizontalDivider(Modifier.padding(start = tokens.screenMargin), color = MaterialTheme.colorScheme.outlineVariant)
                 }
             }
@@ -184,6 +191,7 @@ private fun SessionRow(s: SessionSummary, watched: Boolean, onClick: () -> Unit)
             Spacer(Modifier.height(2.dp))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 ProviderBadge(s.provider)
+                ReachLabel(Reach.of(s))
                 Icon(AppIcons.Folder, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(Format.path(s.cwd), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
             }
@@ -194,4 +202,16 @@ private fun SessionRow(s: SessionSummary, watched: Boolean, onClick: () -> Unit)
             else if (watched) Text("followed", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
         }
     }
+}
+
+/** agentd's liveness and drive ("in terminal · tmux", "hosted", "ended"); nothing on even-terminal. */
+@Composable
+private fun ReachLabel(reach: Reach) {
+    val label = reach.label ?: return
+    val color = when {
+        reach.inTerminal && !reach.watchOnly -> MaterialTheme.colorScheme.primary
+        reach.inTerminal || reach.liveness == Liveness.HOSTED -> MaterialTheme.colorScheme.onSurfaceVariant
+        else -> MaterialTheme.colorScheme.outline
+    }
+    Text(label, style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1)
 }

@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -29,6 +30,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarHost
@@ -82,6 +84,7 @@ fun SessionScreen(
     openSheet: Boolean,
     onBack: () -> Unit,
     onEditServer: (String) -> Unit,
+    onOpenSession: (SessionKey, String?, String?) -> Unit,
 ) {
     val key = remember(serverId, sessionId) { SessionKey(serverId, sessionId) }
     val hub = container.hub
@@ -97,6 +100,10 @@ fun SessionScreen(
     var sheet by rememberSaveable { mutableStateOf(openSheet) }
     var menu by remember { mutableStateOf(false) }
     var watched by remember(key) { mutableStateOf(hub.isWatched(key)) }
+    // A prompt waiting for the owner's go-ahead to resume the session in a new process; the fork dialog's text.
+    var confirmSend by remember(key) { mutableStateOf<String?>(null) }
+    var forkText by remember(key) { mutableStateOf<String?>(null) }
+    val reach = state.meta.reach
     val voice = rememberVoice(container)
 
     // The stream is open while the screen is started; leaving it only keeps it if the session is followed.
@@ -140,6 +147,20 @@ fun SessionScreen(
         if (follow && items.isNotEmpty()) list.scrollToItem(items.lastIndex, Int.MAX_VALUE / 2)
     }
 
+    fun send(text: String) {
+        val previous = draft
+        draft = ""; hub.drafts.remove(key); follow = true
+        container.settings.rememberPrompt(text)
+        act { runCatching { hub.prompt(key, text) }.onFailure { draft = previous; throw it } }
+    }
+
+    fun fork(text: String) = act {
+        val forked = hub.fork(key, text)
+        draft = ""; hub.drafts.remove(key)
+        container.settings.rememberPrompt(text)
+        onOpenSession(forked, state.meta.provider, null)
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -163,6 +184,8 @@ fun SessionScreen(
                     IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "More") }
                     DropdownMenu(menu, { menu = false }) {
                         DropdownMenuItem(text = { Text("Reload") }, onClick = { menu = false; hub.reload(key) })
+                        // Only agentd forks; even-terminal would ignore the flag and resume this session instead.
+                        if (reach?.canFork == true) DropdownMenuItem(text = { Text("Fork into a new session") }, onClick = { menu = false; forkText = draft })
                         DropdownMenuItem(text = { Text("Copy session id") }, onClick = { menu = false; clipboard.setText(AnnotatedString(sessionId)) })
                         DropdownMenuItem(text = { Text("Copy last reply") }, onClick = {
                             menu = false
@@ -191,13 +214,9 @@ fun SessionScreen(
                     showQuickReplies = !t.busy && items.lastOrNull() is TranscriptItem.Outcome,
                     recentPrompts = { container.settings.recentPrompts() },
                     voice = voice,
-                    onSend = { text ->
-                        val previous = draft
-                        draft = ""; hub.drafts.remove(key); follow = true
-                        container.settings.rememberPrompt(text)
-                        act { runCatching { hub.prompt(key, text) }.onFailure { draft = previous; throw it } }
-                    },
+                    onSend = { text -> if (hub.resumeWarning(key) != null) confirmSend = text else send(text) },
                     onInterrupt = { act { hub.interrupt(key) } },
+                    disabledHint = reach?.takeIf { it.watchOnly }?.let { "Watch only" + if (it.canFork) ": fork it to write from here" else "" },
                 )
             }
         },
@@ -205,6 +224,13 @@ fun SessionScreen(
         Box(Modifier.fillMaxSize().padding(padding)) {
             Column(Modifier.fillMaxSize()) {
                 LinkBanner(state.link, onEditServer = { onEditServer(serverId) })
+                reach?.let { r ->
+                    r.banner?.let { text ->
+                        Banner(text, MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer, Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                            if (r.watchOnly && r.canFork) TextButton(onClick = { forkText = draft }) { Text("Fork") }
+                        }
+                    }
+                }
                 StatusStrip(t)
                 if (state.loading && items.isEmpty()) Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 else if (items.isEmpty()) Text("No messages in the server's buffer for this session yet.", Modifier.padding(tokens.screenMargin), color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -217,6 +243,36 @@ fun SessionScreen(
                 modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
             ) { Icon(Icons.Filled.KeyboardArrowDown, "Jump to latest") }
         }
+    }
+
+    confirmSend?.let { text ->
+        AlertDialog(
+            onDismissRequest = { confirmSend = null },
+            title = { Text("Resume this session?") },
+            text = { Text(hub.resumeWarning(key) ?: "Sending resumes this session in a new process.") },
+            confirmButton = { TextButton(onClick = { confirmSend = null; send(text) }) { Text("Resume and send") } },
+            dismissButton = {
+                Row {
+                    if (reach?.canFork == true) TextButton(onClick = { confirmSend = null; forkText = text }) { Text("Fork instead") }
+                    TextButton(onClick = { confirmSend = null }) { Text("Cancel") }
+                }
+            },
+        )
+    }
+
+    forkText?.let { text ->
+        AlertDialog(
+            onDismissRequest = { forkText = null },
+            title = { Text("Fork into a new session") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("A new session continues from this conversation. This one is not touched, even if a terminal runs it.", style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(text, { forkText = it }, placeholder = { Text("First message") }, maxLines = 6, modifier = Modifier.fillMaxWidth())
+                }
+            },
+            confirmButton = { TextButton(onClick = { forkText = null; fork(text.trim()) }, enabled = text.isNotBlank() && !sending) { Text("Fork") } },
+            dismissButton = { TextButton(onClick = { forkText = null }) { Text("Cancel") } },
+        )
     }
 
     if (sheet && (t.pendingPermission != null || t.pendingQuestion != null)) {

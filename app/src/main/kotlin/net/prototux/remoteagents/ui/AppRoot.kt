@@ -98,6 +98,7 @@ fun AppRoot(container: Container, openRequest: MutableStateFlow<OpenRequest?>) {
                 openSheet = a.getBoolean("sheet"),
                 onBack = { if (!nav.popBackStack()) nav.navigate(Routes.SERVERS) },
                 onEditServer = { nav.navigate(Routes.server(it)) },
+                onOpenSession = { key, provider, title -> nav.navigate(Routes.session(key.serverId, key.sessionId, provider, title)) },
             )
         }
         composable(Routes.SETTINGS) { SettingsScreen(container, onBack = { nav.popBackStack() }, onAbout = { nav.navigate(Routes.ABOUT) }) }

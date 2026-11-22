@@ -8,9 +8,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import net.prototux.remoteagents.api.AuthFailedException
 import net.prototux.remoteagents.api.EvenTerminalClient
+import net.prototux.remoteagents.api.Reach
+import net.prototux.remoteagents.api.SessionLiveException
 import net.prototux.remoteagents.api.SessionState
 import net.prototux.remoteagents.api.StreamEvent
 import net.prototux.remoteagents.api.Transcript
+import net.prototux.remoteagents.api.TranscriptItem
 import net.prototux.remoteagents.api.events
 import net.prototux.remoteagents.api.findPinMismatch
 
@@ -24,7 +27,8 @@ sealed interface Link {
     data object Stopped : Link
 }
 
-data class SessionMeta(val title: String? = null, val cwd: String? = null, val provider: String? = null)
+/** [reach] is null until the list or `/status` said; `Reach()` (all fields null) means plain even-terminal. */
+data class SessionMeta(val title: String? = null, val cwd: String? = null, val provider: String? = null, val reach: Reach? = null)
 
 data class LiveState(
     val key: SessionKey,
@@ -63,6 +67,7 @@ class SessionHub(
         private suspend fun run(client: EvenTerminalClient) {
             val provider = state.value.meta.provider
             publish(link = Link.Connecting)
+            refreshReach(client)
             val page = try { client.messages(key.sessionId, provider = provider) } catch (e: AuthFailedException) {
                 authFailed(); return
             } catch (e: Exception) { if (e.findPinMismatch() != null) { certificateChanged(); return }; null }
@@ -92,6 +97,12 @@ class SessionHub(
             }
         }
 
+        /** Reads liveness and drive from `/status` (agentd); even-terminal answers without them or 404. */
+        suspend fun refreshReach(client: EvenTerminalClient) {
+            val status = runCatching { client.status(key.sessionId, state.value.meta.provider) }.getOrNull() ?: return
+            state.value = state.value.copy(meta = state.value.meta.copy(reach = Reach.of(status)))
+        }
+
         private fun authFailed() {
             servers.update(key.serverId) { it.copy(needsRepair = true) }
             publish(link = Link.AuthFailed, loading = false)
@@ -109,6 +120,8 @@ class SessionHub(
 
     private val live = HashMap<SessionKey, Live>()
     private val watched = HashSet<SessionKey>()
+    /** Sessions this app started or already sent to (after the owner's go-ahead) in this process. */
+    private val prompted = HashSet<SessionKey>()
     private var serviceOn = false
 
     private val _working = MutableStateFlow<List<LiveState>>(emptyList())
@@ -127,9 +140,20 @@ class SessionHub(
         }
 
     private fun merge(old: SessionMeta, new: SessionMeta) =
-        SessionMeta(new.title ?: old.title, new.cwd ?: old.cwd, new.provider ?: old.provider)
+        SessionMeta(new.title ?: old.title, new.cwd ?: old.cwd, new.provider ?: old.provider, new.reach ?: old.reach)
 
     fun state(key: SessionKey, meta: SessionMeta? = null): StateFlow<LiveState> = obtain(key, meta).state.asStateFlow()
+
+    /** What the sessions list knows about a session, before it is opened. */
+    fun note(key: SessionKey, meta: SessionMeta) { obtain(key, meta) }
+
+    /**
+     * The warning to confirm before the first prompt from this app to an existing session, or null. A prompt
+     * that resumes a session in a new process forks it if a terminal still runs it, and even-terminal cannot
+     * tell; so it is asked once, unless this app started the session or sent to it already.
+     */
+    fun resumeWarning(key: SessionKey): String? =
+        if (key in prompted) null else (live[key]?.state?.value?.meta?.reach ?: Reach()).resumeWarning
 
     /** The session screen is shown (app started). Opening a session also watches it. */
     fun attach(key: SessionKey, meta: SessionMeta? = null) {
@@ -166,13 +190,35 @@ class SessionHub(
         watched += key
         val before = l.t
         l.publish(transcript = before.withLocalPrompt(text).copy(state = SessionState.BUSY))
+        val client = client(key)
         try {
-            client(key).prompt(text, sessionId = key.sessionId, provider = provider(key))
+            client.prompt(text, sessionId = key.sessionId, provider = provider(key))
         } catch (e: Exception) {
-            l.publish(transcript = l.t.copy(items = l.t.items.filterNot { it is net.prototux.remoteagents.api.TranscriptItem.Prompt && it.pending && it.text == text }, state = before.state))
+            l.publish(transcript = l.t.copy(items = l.t.items.filterNot { it is TranscriptItem.Prompt && it.pending && it.text == text }, state = before.state))
+            // agentd lost its way into the terminal (pane closed, dialog open): show the session as it is now.
+            if (e is SessionLiveException) l.refreshReach(client)
             throw e
         }
+        prompted += key
         l.start()
+        // An ended session is now hosted: the banner and the next prompt follow that.
+        scope.launch { l.refreshReach(client) }
+    }
+
+    /**
+     * Continues [key] in a new session (agentd `fork`); the original is never touched, even when it runs in a
+     * terminal. The new session opens with its first prompt shown.
+     */
+    suspend fun fork(key: SessionKey, text: String): SessionKey {
+        val from = obtain(key, null).state.value.meta
+        val accepted = client(key).prompt(text, sessionId = key.sessionId, provider = from.provider, fork = true)
+        val forked = SessionKey(key.serverId, accepted.sessionId)
+        val l = obtain(forked, SessionMeta(title = "Fork: " + (from.title ?: text.lineSequence().first().take(80)), cwd = from.cwd, provider = accepted.provider ?: from.provider))
+        watched += forked
+        prompted += forked
+        l.publish(transcript = l.t.withLocalPrompt(text).copy(state = SessionState.BUSY), loading = false)
+        l.start()
+        return forked
     }
 
     /** Starts a session; its first prompt shows immediately. */
@@ -181,6 +227,7 @@ class SessionHub(
         val accepted = client.prompt(text, provider = provider, cwd = cwd?.ifBlank { null })
         cwd?.takeIf { it.isNotBlank() }?.let { servers.rememberCwd(serverId, it) }
         val key = SessionKey(serverId, accepted.sessionId)
+        prompted += key
         val l = obtain(key, SessionMeta(title = text.lineSequence().first().take(80), cwd = cwd, provider = accepted.provider ?: provider))
         watched += key
         l.publish(transcript = l.t.withLocalPrompt(text).copy(state = SessionState.BUSY), loading = false)

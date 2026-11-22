@@ -40,7 +40,8 @@ import net.prototux.remoteagents.api.SlashCommands
 
 /**
  * The prompt box: multi-line text, slash-command suggestions (sent as text), recent prompts, quick replies,
- * dictation, send, and Interrupt while the agent works (like Esc in Claude Code).
+ * dictation, send, and Interrupt while the agent works (like Esc in Claude Code). With [disabledHint] set
+ * the session cannot take prompts (watch only): the box shows the hint and sends nothing.
  */
 @Composable
 fun PromptBox(
@@ -54,7 +55,9 @@ fun PromptBox(
     voice: VoiceController?,
     onSend: (String) -> Unit,
     onInterrupt: () -> Unit,
+    disabledHint: String? = null,
 ) {
+    val enabled = disabledHint == null
     val suggestions = remember(text, provider) { SlashCommands.matching(provider, text.trim()) }
     var historyOpen by remember { mutableStateOf(false) }
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 2.dp) {
@@ -67,13 +70,13 @@ fun PromptBox(
                     }
                 }
             }
-            if (showQuickReplies && text.isEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()).padding(bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (enabled && showQuickReplies && text.isEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()).padding(bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 QUICK_REPLIES.forEach { q -> SuggestionChip(onClick = { onSend(q) }, label = { Text(q) }, enabled = !sending) }
             }
             voice?.let { v -> (v.partial ?: v.error)?.let { Text(it, Modifier.padding(horizontal = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
             Row(verticalAlignment = Alignment.Bottom) {
                 Box {
-                    IconButton(onClick = { historyOpen = true }) { Icon(AppIcons.History, "Recent prompts") }
+                    IconButton(onClick = { historyOpen = true }, enabled = enabled) { Icon(AppIcons.History, "Recent prompts") }
                     val recent = if (historyOpen) recentPrompts() else emptyList()
                     DropdownMenu(historyOpen, { historyOpen = false }) {
                         if (recent.isEmpty()) DropdownMenuItem(text = { Text("No recent prompts") }, onClick = { historyOpen = false }, enabled = false)
@@ -83,17 +86,18 @@ fun PromptBox(
                 OutlinedTextField(
                     text, onText,
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text(if (busy) "Queue a message…" else "Message, or / for commands") },
+                    enabled = enabled,
+                    placeholder = { Text(disabledHint ?: if (busy) "Queue a message…" else "Message, or / for commands") },
                     maxLines = 6,
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                    trailingIcon = voice?.let { v -> { MicButton(v) { onText(appendText(text, it)) } } },
+                    trailingIcon = voice?.takeIf { enabled }?.let { v -> { MicButton(v) { onText(appendText(text, it)) } } },
                 )
-                if (busy) IconButton(onClick = onInterrupt) {
+                if (busy && enabled) IconButton(onClick = onInterrupt) {
                     Icon(AppIcons.Stop, "Interrupt", tint = MaterialTheme.colorScheme.error)
                 }
                 FilledIconButton(
                     onClick = { onSend(text.trim()) },
-                    enabled = text.isNotBlank() && !sending,
+                    enabled = enabled && text.isNotBlank() && !sending,
                     colors = IconButtonDefaults.filledIconButtonColors(),
                     modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
                 ) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }

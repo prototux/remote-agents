@@ -3,6 +3,7 @@ package net.prototux.remoteagents.ui
 import net.prototux.remoteagents.api.ApiException
 import net.prototux.remoteagents.api.AuthFailedException
 import net.prototux.remoteagents.api.PublicAddressRefused
+import net.prototux.remoteagents.api.SessionLiveException
 import net.prototux.remoteagents.api.findPinMismatch
 import java.net.ConnectException
 import java.net.SocketTimeoutException
@@ -15,6 +16,7 @@ fun Throwable.describe(): String {
     while (t != null) {
         when (t) {
             is AuthFailedException -> return "The server refused the token. Pair again with the current QR code."
+            is SessionLiveException -> return "This session runs in a terminal that can't be typed into from here. Fork it to continue on the phone."
             is PublicAddressRefused -> return t.message ?: "Public address refused"
             is UnknownHostException -> return "Host not found. Is the VPN connected?"
             is ConnectException -> return "Can't reach the server. Is the VPN up and even-terminal running?"
