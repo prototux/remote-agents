@@ -304,3 +304,16 @@ interface enp0s3 + loopback, port 3456, token from `~/.even-terminal/config.json
 Verified: Remote Agents' live test on 10.0.2.15:3456; a real Claude TUI in tmux driven end to end (prompt in via
 tmux, Bash permission request out through the hook, allow from the API, command ran, result emitted).
 Rollback: `systemctl --user disable --now agentd`, `agentd hooks uninstall`, start `even-terminal` again.
+
+## Subagents and workflows (owner decision S11, 2026-11-22)
+
+Owner: show subagents and workflows (ultracode) with **live progress and full transcripts**. Implementation
+choices (additive API, decided inside S11):
+- Sources: `<session>/subagents/agent-<id>.jsonl` + `.meta.json` (agentType, description, toolUseId, model,
+  workflowPhase); `<session>/subagents/workflows/<runId>/journal.jsonl` (launched / started{agentId,label,phase}
+  / result) and its `agent-*.jsonl`; `<session>/workflows/<runId>.json` (name, summary, phases, status, totals).
+  Hosted sessions write the same files, so one follower serves both.
+- New event types `agent_update` and `workflow_update` are sent only to `/events` clients passing `agents=1`
+  (the Even app never sees unknown types). `GET /api/sessions/:id/agents` lists them; `/events` and
+  `/messages` with `agentId=` stream one agent's transcript in the usual vocabulary, read-only.
+- `permission_request` / `user_question` from a subagent carry an optional `agentId` (and label when known).
