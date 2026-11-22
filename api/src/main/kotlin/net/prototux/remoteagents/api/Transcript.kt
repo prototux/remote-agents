@@ -14,8 +14,12 @@ data class Transcript(
     /** The latest TodoWrite list, as Claude Code shows it. */
     val todos: List<Todo> = emptyList(),
     val stats: AgentMessage.RunningStats? = null,
+    /** The request to show: the newest still open. */
     val pendingPermission: AgentMessage.PermissionRequest? = null,
     val pendingQuestion: AgentMessage.UserQuestion? = null,
+    /** Every open request, oldest first: agentd may hold several (parallel subagents) and names the one it resolves. */
+    val openPermissions: List<AgentMessage.PermissionRequest> = emptyList(),
+    val openQuestions: List<AgentMessage.UserQuestion> = emptyList(),
     val totalCostUsd: Double = 0.0,
     val turns: Int = 0,
     /** Ids already applied, with their fingerprints, so a later stream can skip them. */
@@ -33,7 +37,7 @@ data class Transcript(
         return when (m) {
             is AgentMessage.Status -> when (m.state) {
                 "busy" -> t.copy(state = if (t.awaitingInput) SessionState.AWAITING else SessionState.BUSY)
-                "idle" -> t.copy(state = SessionState.IDLE, phase = Phase.None, stats = null, pendingPermission = null, pendingQuestion = null,
+                "idle" -> t.copy(state = SessionState.IDLE, phase = Phase.None, stats = null, pendingPermission = null, pendingQuestion = null, openPermissions = emptyList(), openQuestions = emptyList(),
                     items = t.items.map { if (it is TranscriptItem.Tool && it.running) it.copy(running = false) else it })
                 "think_start" -> t.copy(phase = Phase.Thinking, state = t.busyState())
                 "text_start" -> t.copy(phase = Phase.Responding, state = t.busyState())
@@ -65,30 +69,35 @@ data class Transcript(
             is AgentMessage.TaskProgress -> t.copy(progress = m)
             is AgentMessage.PermissionRequest -> t.copy(
                 items = t.items + TranscriptItem.Permission(m, null, key = "a${m.id ?: t.items.size}"),
-                pendingPermission = m, state = SessionState.AWAITING,
+                pendingPermission = m, openPermissions = t.openPermissions + m, state = SessionState.AWAITING,
             )
             is AgentMessage.PermissionResult -> {
-                val i = t.items.indexOfLast { it is TranscriptItem.Permission && it.result == null }
+                // agentd names the request it resolves; older servers resolve the latest one, and only one is open.
+                val id = m.toolUseId
+                val i = t.items.indexOfLast { it is TranscriptItem.Permission && it.result == null && (id == null || it.request.toolUseId == id) }
                 val items = if (i >= 0) t.items.replace(i, (t.items[i] as TranscriptItem.Permission).copy(result = m)) else t.items
-                val rest = t.copy(items = items, pendingPermission = null)
-                rest.copy(state = if (rest.pendingQuestion != null) SessionState.AWAITING else SessionState.BUSY)
+                val open = if (id == null) emptyList() else t.openPermissions.filter { it.toolUseId != id }
+                val rest = t.copy(items = items, openPermissions = open, pendingPermission = open.lastOrNull())
+                rest.copy(state = if (rest.awaitingInput) SessionState.AWAITING else SessionState.BUSY)
             }
             is AgentMessage.UserQuestion -> t.copy(
                 items = t.items + TranscriptItem.Ask(m, null, key = "q${m.id ?: t.items.size}"),
-                pendingQuestion = m, state = SessionState.AWAITING,
+                pendingQuestion = m, openQuestions = t.openQuestions + m, state = SessionState.AWAITING,
             )
             is AgentMessage.QuestionAnswer -> {
-                val i = t.items.indexOfLast { it is TranscriptItem.Ask && it.answers == null }
+                val id = m.toolUseId
+                val i = t.items.indexOfLast { it is TranscriptItem.Ask && it.answers == null && (id == null || it.question.toolUseId == id) }
                 val items = if (i >= 0) t.items.replace(i, (t.items[i] as TranscriptItem.Ask).copy(answers = m.answers)) else t.items
-                val rest = t.copy(items = items, pendingQuestion = null)
-                rest.copy(state = if (rest.pendingPermission != null) SessionState.AWAITING else SessionState.BUSY)
+                val open = if (id == null) emptyList() else t.openQuestions.filter { it.toolUseId != id }
+                val rest = t.copy(items = items, openQuestions = open, pendingQuestion = open.lastOrNull())
+                rest.copy(state = if (rest.awaitingInput) SessionState.AWAITING else SessionState.BUSY)
             }
             is AgentMessage.Notification -> t.copy(items = t.items + TranscriptItem.Notice(m.title, m.message, key = "n${m.id ?: t.items.size}"))
             is AgentMessage.RunningStats -> t.copy(stats = m)
             is AgentMessage.Result -> t.copy(
                 items = t.items.map { if (it is TranscriptItem.Tool && it.running) it.copy(running = false) else it } +
                     TranscriptItem.Outcome(m, key = "r${m.id ?: t.items.size}"),
-                phase = Phase.None, stats = null, pendingPermission = null, pendingQuestion = null,
+                phase = Phase.None, stats = null, pendingPermission = null, pendingQuestion = null, openPermissions = emptyList(), openQuestions = emptyList(),
                 totalCostUsd = t.totalCostUsd + (m.costUsd ?: 0.0), turns = t.turns + 1,
             )
             is AgentMessage.Error -> t.copy(items = t.items + TranscriptItem.Failure(m.message, key = "e${m.id ?: t.items.size}"))
@@ -115,7 +124,7 @@ data class Transcript(
 
     /** The state the server reports (`/messages`, `/status`) wins over what the backlog implies. */
     fun withServerState(serverState: String): Transcript = when (serverState) {
-        SessionState.IDLE -> copy(state = SessionState.IDLE, phase = Phase.None, stats = null, pendingPermission = null, pendingQuestion = null)
+        SessionState.IDLE -> copy(state = SessionState.IDLE, phase = Phase.None, stats = null, pendingPermission = null, pendingQuestion = null, openPermissions = emptyList(), openQuestions = emptyList())
         SessionState.BUSY, SessionState.AWAITING -> copy(state = serverState)
         else -> this
     }

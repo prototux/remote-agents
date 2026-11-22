@@ -84,4 +84,24 @@ class TranscriptTest {
         val t = Transcript().reduce(AgentMessage.parse("""{"type":"future_thing"}""", 5))
         assertTrue(t.items.single() is TranscriptItem.Unknown)
     }
+
+    @Test fun `results name their request when several are open`() {
+        fun perm(id: Long, use: String) = AgentMessage.parse("""{"type":"permission_request","toolName":"Bash","detail":"$use","toolUseId":"$use","options":[{"key":"allow","text":"Allow"}]}""", id)
+        var t = Transcript().reduceAll(listOf(perm(1, "A"), perm(2, "B")))
+        assertEquals("B", t.pendingPermission!!.toolUseId)
+        // B resolved: A, still open, is shown again.
+        t = t.reduce(AgentMessage.parse("""{"type":"permission_result","toolName":"Bash","decision":"denied","toolUseId":"B"}""", 3))
+        assertEquals("A", t.pendingPermission!!.toolUseId)
+        assertEquals(SessionState.AWAITING, t.state)
+        val results = t.items.filterIsInstance<TranscriptItem.Permission>().associate { it.request.toolUseId to it.result?.decision }
+        assertEquals(mapOf("A" to null, "B" to "denied"), results)
+        // A expires on the server: nothing is left to answer.
+        t = t.reduce(AgentMessage.parse("""{"type":"permission_result","toolName":"Bash","decision":"expired","toolUseId":"A"}""", 4))
+        assertNull(t.pendingPermission)
+        assertEquals(SessionState.BUSY, t.state)
+        // A result without an id (even-terminal) still resolves the latest request.
+        t = t.reduceAll(listOf(perm(5, "C"), AgentMessage.parse("""{"type":"permission_result","toolName":"Bash","decision":"allowed"}""", 6)))
+        assertNull(t.pendingPermission)
+        assertEquals("allowed", t.items.filterIsInstance<TranscriptItem.Permission>().last().result!!.decision)
+    }
 }

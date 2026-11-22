@@ -57,17 +57,23 @@ class EvenTerminalClient(val endpoint: Endpoint, base: OkHttpClient = OkHttpClie
             cwd?.let { put("cwd", it) }
         })
 
-    suspend fun permissionResponse(sessionId: String, decision: String, provider: String? = null) {
+    /**
+     * [toolUseId] names the request shown to the user (agentd extension): agentd then answers that one or
+     * refuses with 409 when it is no longer pending, so a tap never approves a different tool call.
+     */
+    suspend fun permissionResponse(sessionId: String, decision: String, provider: String? = null, toolUseId: String? = null) {
         post<JsonObject>("permission-response", buildJsonObject {
             put("sessionId", sessionId); put("decision", decision); provider?.let { put("provider", it) }
+            toolUseId?.let { put("toolUseId", it) }
         })
     }
 
     /** [answers] maps each question's key to its answer text (several selections joined with ", "). */
-    suspend fun questionResponse(sessionId: String, answers: Map<String, String>, provider: String? = null) {
+    suspend fun questionResponse(sessionId: String, answers: Map<String, String>, provider: String? = null, toolUseId: String? = null) {
         val answer = ApiJson.encodeToString(JsonObject.serializer(), buildJsonObject { answers.forEach { (k, v) -> put(k, v) } })
         post<JsonObject>("question-response", buildJsonObject {
             put("sessionId", sessionId); put("answer", answer); provider?.let { put("provider", it) }
+            toolUseId?.let { put("toolUseId", it) }
         })
     }
 

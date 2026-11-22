@@ -23,6 +23,8 @@ class ActionReceiver : BroadcastReceiver() {
         val provider = intent.getStringExtra(MainActivity.EXTRA_PROVIDER)
         val typed = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(KEY_TEXT)?.toString()?.trim()
         val value = intent.getStringExtra(EXTRA_VALUE)
+        // The request this notification showed: a stale tap is refused instead of answering a newer one.
+        val toolUseId = intent.getStringExtra(EXTRA_TOOL_USE_ID)
         val pending = goAsync()
         scope.launch {
             val hub = container.hub
@@ -30,11 +32,11 @@ class ActionReceiver : BroadcastReceiver() {
             try {
                 withTimeout(9_000) {
                     when (intent.action) {
-                        ACTION_PERMISSION -> { hub.respondPermission(key, value ?: return@withTimeout, provider); notifier.cancel(key, Alert.Kind.Permission) }
+                        ACTION_PERMISSION -> { hub.respondPermission(key, value ?: return@withTimeout, provider, toolUseId); notifier.cancel(key, Alert.Kind.Permission) }
                         ACTION_ANSWER -> {
                             val question = intent.getStringExtra(EXTRA_QUESTION) ?: return@withTimeout
                             val answer = typed?.ifBlank { null } ?: value ?: return@withTimeout
-                            hub.answer(key, mapOf(question to answer), provider)
+                            hub.answer(key, mapOf(question to answer), provider, toolUseId)
                             notifier.cancel(key, Alert.Kind.Question)
                         }
                         ACTION_REPLY -> {
@@ -60,6 +62,7 @@ class ActionReceiver : BroadcastReceiver() {
         const val ACTION_UNWATCH_ALL = "net.prototux.remoteagents.UNWATCH_ALL"
         const val EXTRA_VALUE = "value"
         const val EXTRA_QUESTION = "question"
+        const val EXTRA_TOOL_USE_ID = "toolUseId"
         const val KEY_TEXT = "text"
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     }

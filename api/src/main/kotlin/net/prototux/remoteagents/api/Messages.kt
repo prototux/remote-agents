@@ -51,9 +51,14 @@ sealed interface AgentMessage {
         val toolName: String, val description: String?, val detail: String?, val toolUseId: String?,
         val options: List<PermissionOption>,
     ) : AgentMessage
-    data class PermissionResult(override val id: Long?, override val raw: JsonObject, val toolName: String, val summary: String?, val decision: String) : AgentMessage
+    /** [toolUseId] (agentd) names the request it resolves; [decision] `expired` means it ended unanswered. */
+    data class PermissionResult(
+        override val id: Long?, override val raw: JsonObject, val toolName: String, val summary: String?, val decision: String,
+        val toolUseId: String? = null,
+    ) : AgentMessage
     data class UserQuestion(override val id: Long?, override val raw: JsonObject, val questions: List<Question>, val toolUseId: String?) : AgentMessage
-    data class QuestionAnswer(override val id: Long?, override val raw: JsonObject, val answers: Map<String, String>) : AgentMessage
+    /** [toolUseId] (agentd) names the question it resolves; no answers means it ended unanswered. */
+    data class QuestionAnswer(override val id: Long?, override val raw: JsonObject, val answers: Map<String, String>, val toolUseId: String? = null) : AgentMessage
     data class Notification(override val id: Long?, override val raw: JsonObject, val title: String?, val message: String) : AgentMessage
     data class RunningStats(override val id: Long?, override val raw: JsonObject, val durationMs: Long, val inputTokens: Long, val outputTokens: Long) : AgentMessage
     data class Result(
@@ -90,14 +95,14 @@ sealed interface AgentMessage {
                         (o as? JsonObject)?.let { PermissionOption(it.str("key") ?: return@let null, it.str("text") ?: it.str("key")!!) }
                     },
                 )
-                "permission_result" -> PermissionResult(id, json, json.str("toolName") ?: "tool", json.str("summary"), json.str("decision") ?: "")
+                "permission_result" -> PermissionResult(id, json, json.str("toolName") ?: "tool", json.str("summary"), json.str("decision") ?: "", json.str("toolUseId"))
                 "user_question" -> UserQuestion(
                     id, json,
                     (json["questions"] as? JsonArray).orEmpty().mapNotNull { q -> (q as? JsonObject)?.let(Question::parse) },
                     json.str("toolUseId"),
                 )
                 "question_answer" -> QuestionAnswer(
-                    id, json, (json["answers"] as? JsonObject).orEmpty().mapValues { it.value.asText() },
+                    id, json, (json["answers"] as? JsonObject).orEmpty().mapValues { it.value.asText() }, json.str("toolUseId"),
                 )
                 "notification" -> Notification(id, json, json.str("title"), json.str("message") ?: "")
                 "running_stats" -> RunningStats(id, json, json.long("durationMs") ?: 0, json.long("inputTokens") ?: 0, json.long("outputTokens") ?: 0)

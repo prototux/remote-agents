@@ -220,12 +220,15 @@ fun SessionScreen(
     }
 
     if (sheet && (t.pendingPermission != null || t.pendingQuestion != null)) {
+        val permission = t.pendingPermission
+        val question = if (permission == null) t.pendingQuestion else null
         ApprovalSheet(
-            permission = t.pendingPermission,
-            question = if (t.pendingPermission == null) t.pendingQuestion else null,
+            permission = permission,
+            question = question,
             onDismiss = { sheet = false },
-            onDecide = { decision -> act { hub.respondPermission(key, decision); sheet = false } },
-            onAnswer = { answers -> act { hub.answer(key, answers); sheet = false } },
+            // The id of the request on screen: the server refuses the decision if that one has ended.
+            onDecide = { decision -> act { hub.respondPermission(key, decision, toolUseId = permission?.toolUseId); sheet = false } },
+            onAnswer = { answers -> act { hub.answer(key, answers, toolUseId = question?.toolUseId); sheet = false } },
             sending = sending,
         )
     }

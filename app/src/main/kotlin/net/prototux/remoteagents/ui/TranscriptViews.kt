@@ -200,6 +200,7 @@ private fun DecisionChip(decision: String) {
         "allowed" -> "Allowed" to true
         "always" -> "Always allowed" to true
         "denied" -> "Denied" to false
+        "expired" -> "Not answered here" to false
         else -> decision to true
     }
     Row(verticalAlignment = Alignment.CenterVertically) {

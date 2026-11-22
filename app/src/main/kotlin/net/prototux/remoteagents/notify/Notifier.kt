@@ -56,6 +56,7 @@ class Notifier(private val context: Context, private val settings: SettingsStore
                     .setPublicVersion(publicVersion(CH_APPROVAL, "A session needs your approval"))
                 if (r.options.size <= 3) r.options.forEachIndexed { i, o ->
                     val intent = actionIntent(ActionReceiver.ACTION_PERMISSION, alert.key, provider).putExtra(ActionReceiver.EXTRA_VALUE, o.key)
+                        .putExtra(ActionReceiver.EXTRA_TOOL_USE_ID, r.toolUseId)
                     b.addAction(
                         NotificationCompat.Action.Builder(0, o.text, broadcast(intent, alert.key, Alert.Kind.Permission, i, mutable = false))
                             .setAuthenticationRequired(s.actionsNeedUnlock).build(),
@@ -79,11 +80,13 @@ class Notifier(private val context: Context, private val settings: SettingsStore
                 if (qs.size == 1 && !first!!.multiSelect && first.options.size <= 2) first.options.forEachIndexed { i, o ->
                     val intent = actionIntent(ActionReceiver.ACTION_ANSWER, alert.key, provider)
                         .putExtra(ActionReceiver.EXTRA_QUESTION, first.key).putExtra(ActionReceiver.EXTRA_VALUE, o.label)
+                        .putExtra(ActionReceiver.EXTRA_TOOL_USE_ID, alert.question.toolUseId)
                     b.addAction(NotificationCompat.Action.Builder(0, o.label, broadcast(intent, alert.key, Alert.Kind.Question, i, mutable = false))
                         .setAuthenticationRequired(s.actionsNeedUnlock).build())
                 }
                 if (qs.size == 1) {
                     val intent = actionIntent(ActionReceiver.ACTION_ANSWER, alert.key, provider).putExtra(ActionReceiver.EXTRA_QUESTION, first!!.key)
+                        .putExtra(ActionReceiver.EXTRA_TOOL_USE_ID, alert.question.toolUseId)
                     b.addAction(replyAction("Answer", intent, alert.key, Alert.Kind.Question, s.actionsNeedUnlock))
                 }
                 post(alert.key, Alert.Kind.Question, b.build())

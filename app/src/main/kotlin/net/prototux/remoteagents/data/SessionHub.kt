@@ -189,11 +189,12 @@ class SessionHub(
     }
 
     // [provider] comes from a notification when the process was restarted and the session is not live.
-    suspend fun respondPermission(key: SessionKey, decision: String, provider: String? = provider(key)) =
-        client(key).permissionResponse(key.sessionId, decision, provider)
+    // [toolUseId] is the request the user saw, so the decision cannot reach another one.
+    suspend fun respondPermission(key: SessionKey, decision: String, provider: String? = provider(key), toolUseId: String? = null) =
+        client(key).permissionResponse(key.sessionId, decision, provider, toolUseId)
 
-    suspend fun answer(key: SessionKey, answers: Map<String, String>, provider: String? = provider(key)) =
-        client(key).questionResponse(key.sessionId, answers, provider)
+    suspend fun answer(key: SessionKey, answers: Map<String, String>, provider: String? = provider(key), toolUseId: String? = null) =
+        client(key).questionResponse(key.sessionId, answers, provider, toolUseId)
 
     suspend fun interrupt(key: SessionKey) = client(key).interrupt(key.sessionId, provider(key))
 
