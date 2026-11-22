@@ -52,9 +52,12 @@ class EvenTerminalClient(val endpoint: Endpoint, base: OkHttpClient = OkHttpClie
      * Sends a prompt. Without [sessionId] this starts a new session; the answer carries its id.
      *
      * agentd extensions, sent only when set: [fork] continues [sessionId] in a new session (the answer
-     * carries the new id) and never touches the original; [force] drives a session that runs in a terminal
-     * anyway, so two processes write one transcript. Without them agentd answers [SessionLiveException] for a
-     * terminal session it cannot type into. even-terminal ignores both fields.
+     * carries the new id) and never touches the original; [force] resumes a session whose liveness agentd
+     * cannot tell ("unknown"), at the risk of a second process on its transcript. A session live in a terminal
+     * is never hosted, force or not (decision S8): without [force] agentd delivers to it where it can (its
+     * tmux pane; for Claude also the inbox or the Stop hook), else answers [SessionLiveException]; with
+     * [force] it always answers [SessionLiveException]. Retrying with [force] does not help, [fork] does.
+     * even-terminal ignores both fields.
      */
     suspend fun prompt(
         text: String,
