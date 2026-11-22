@@ -48,3 +48,16 @@ Owner decisions (2026-11-22) and the implementation choices made inside them. Sp
 - **Foreground service type** `specialUse` (no daily time limit, unlike `dataSync` on Android 15).
 - **Slash commands** are offered in the prompt box and sent as prompt text; whether they act depends on the
   provider (claude-sync drives a real TUI; the Agent SDK supports some). Not verified against a live turn.
+
+## Server (agentd), owner decisions 2026-11-22
+
+Trigger: even-terminal cannot see Claude Code sessions it did not start, reports them `idle`, and a prompt to
+one starts a second Claude process resuming the same transcript (a fork; observed with session bd72f82f).
+
+| # | Topic | Decision |
+|---|---|---|
+| S1 | Approach | Own server in Go, single binary, **drop-in replacement** for even-terminal: same API, port 3456, same token (read from `~/.even-terminal/config.json`). Tested side by side on 3457 first; even-terminal is stopped only with the owner's go-ahead. |
+| S2 | Hooks | Install HTTP hooks in the global `~/.claude/settings.json`, **fail-open** (server down or phone silent → Claude Code behaves as today), via `agentd hooks install|uninstall` with a backup. |
+| S3 | Prompts into terminal sessions | All three: tmux (wrapper `agentd claude|pi` starts the agent in tmux), Claude Code's cross-session inbox socket, and Stop-hook delivery of queued messages. |
+| S4 | Agents in v1 | Claude Code and pi. Adapter interface ready for Codex, opencode, Hermes (not installed, untestable). |
+| S5 | Provenance | Written from `even-terminal-api.md` and observed wire behaviour only; no even-terminal code read or copied. |
