@@ -295,3 +295,12 @@ The app uses agentd's extensions and keeps working against plain even-terminal (
   `After=network-online.target`, PATH with `~/.local/bin`, no flags or secrets); steps in `server/README.md`
   "Install as a service". Not installed.
 - **Open**: S10 says network mode `expose` refuses to start; `config.Parse` still maps it to loopback.
+
+## Cutover done (2026-11-22, 20:2x)
+
+even-terminal stopped by the owner. agentd runs as the systemd user unit `agentd` (`~/.local/bin/agentd serve`,
+interface enp0s3 + loopback, port 3456, token from `~/.even-terminal/config.json`). Hooks installed in
+`~/.claude/settings.json` (backup `settings.json.agentd-backup-20261122T192636Z`; the owner's PreToolUse hook kept).
+Verified: Remote Agents' live test on 10.0.2.15:3456; a real Claude TUI in tmux driven end to end (prompt in via
+tmux, Bash permission request out through the hook, allow from the API, command ran, result emitted).
+Rollback: `systemctl --user disable --now agentd`, `agentd hooks uninstall`, start `even-terminal` again.
