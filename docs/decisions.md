@@ -196,7 +196,11 @@ Fixes from the security and correctness review of steps 1-2. Choices inside the 
   ends unanswered publishes `permission_result` with decision `expired` (or `question_answer` with no
   answers); results carry `toolUseId`. The app sends the id from the sheet and the notification actions and
   matches results by it. Rejected: answering the newest (what clients show) without an id, since a stale tap
-  would still reach a newer request.
+  would still reach a newer request. Also refused (409) without an id (2026-11-22, review of S8): a request
+  that opened after another of the same session and kind ended unanswered less than 1 min ago (the card a
+  legacy client may still show, a tap that crossed the timeout) or was answered less than 2 s ago (a repeated
+  tap). Cost: a client that never sends ids waits up to a minute after an expiry or interrupt to answer the
+  next request of that session from the phone.
 - **Message ids per session**: the same transcript replays under the same ids after a restart, so clients see
   duplicates or a known id with other content (their reset signal), never a second copy under higher ids.
   Rejected: an epoch field in `/info` and messages (needs a client change for every client).
@@ -270,15 +274,24 @@ The app uses agentd's extensions and keeps working against plain even-terminal (
   message, pi gets `confirmed:false` (other dialogs `cancelled:true`). Terminal hook waits keep `--hook-wait`.
 - **S8 pi extension**: `server/internal/pi/approval-extension.ts`, embedded with `go:embed`, written to
   `~/.config/agentd/pi-approval.ts` (dir 0700, file 0600, temp file + rename, rewritten when the bytes differ)
-  before every hosted pi start and passed with `-e`. Hook `tool_call` (pi `extensions.md`) on `bash`,
-  `powershell` (pi's shell tool on Windows), `write` and `edit`; `ctx.ui.confirm(<tool>, <command or path>,
-  {signal})`; anything but a confirm blocks the call (`{block:true, reason}`), as does a missing UI. agentd reads
-  the title back as the tool name and the message as `command`/`path`, so the phone shows it like a Claude tool
-  call. A hosted pi refuses to start when the file cannot be written. Other tools (`read`, `grep`, `find`, `ls`,
-  extension tools) are not asked about. Terminal pi (`agentd pi`) does not load it.
+  before every hosted pi start and passed with `-e`. Hook `tool_call` (pi `extensions.md`) on every tool
+  except the read-only `read`, `grep`, `find`, `ls`, `tool_search` and `codemode` (its nested calls fire
+  `tool_call` again): an allowlist, so MCP tools, extension tools and later built-ins ask too (review of S8;
+  rejected: trusting MCP `readOnlyHint`, which pi says is not verified). `ctx.ui.confirm(<tool>, <command or
+  path for bash/powershell/write/edit, else the input as JSON>, {signal})`; anything but a confirm blocks the
+  call (`{block:true, reason}`), as does a missing UI. agentd reads the title back as the tool name and the
+  message as `command`/`path` or the input, so the phone shows it like a Claude tool call. A hosted pi refuses
+  to start when the file cannot be written, when the path is not absolute (no HOME), or when its folder belongs
+  to another user (a looser mode is set back to 0700; a symlink in place of the file is replaced). Liveness: the
+  extension sets status `agentd-approval` on `session_start`; agentd sends no prompt before it and ends a pi
+  that has not sent it within 15 s, and ends a hosted pi on an `extension_error` from this extension (pi
+  itself logs extension errors and goes on). Checked with real pi 1.5.0 and a scripted model: the marker
+  arrives at startup, bash asks, read does not, an abort during the confirm raises no `extension_error`.
+  Terminal pi (`agentd pi`) does not load it.
 - **S8 force**: `provider.Hostable`: `terminal` is never hosted (409 `session_live` with or without force),
   `unknown` only with force, `ended`/`hosted` always. `fork` is unchanged. No adapter reports `unknown` yet.
 - **S9**: `server/contrib/agentd.service` (user unit, `%h/.local/bin/agentd serve`, `Restart=on-failure`,
+  `RestartPreventExitStatus=2` so a configuration error fails the unit instead of restarting forever,
   `After=network-online.target`, PATH with `~/.local/bin`, no flags or secrets); steps in `server/README.md`
   "Install as a service". Not installed.
 - **Open**: S10 says network mode `expose` refuses to start; `config.Parse` still maps it to loopback.
