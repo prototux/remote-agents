@@ -1,0 +1,10 @@
+Remote Agents
+Copyright (C) 2026 Jason (prototux)
+Licensed under the GNU General Public License v3.0 or later (see LICENSE).
+
+Client for even-terminal (Even Realities), implemented from its network protocol only; no code of
+even-terminal is copied or included.
+
+Bundled fonts (SIL Open Font License 1.1, texts in app/src/main/res/raw/):
+- Doto
+- Hanken Grotesk
