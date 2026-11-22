@@ -20,4 +20,4 @@ dependencies {
 }
 
 // Opt-in read-only test against a real server: ET_TOKEN=... ./gradlew :api:test --tests '*LiveServerTest*'
-tasks.withType<Test>().configureEach { System.getenv("ET_TOKEN")?.let { environment("ET_TOKEN", it) } }
+tasks.withType<Test>().configureEach { listOf("ET_TOKEN", "ET_HOST", "ET_PORT").forEach { k -> System.getenv(k)?.let { environment(k, it) } } }
