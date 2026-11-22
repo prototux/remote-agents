@@ -15,7 +15,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       # The runner image ships the Android SDK and sdkmanager; add the platform this app compiles against.
-      - run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-37' 'build-tools;36.0.0' > /dev/null
+      - run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-37.0' 'build-tools;36.0.0' > /dev/null
       - uses: gradle/actions/setup-gradle@v4
       - run: echo "sdk.dir=$ANDROID_HOME" > local.properties
       - run: ./gradlew --no-configuration-cache :api:test :app:testDebugUnitTest :app:assembleDebug
