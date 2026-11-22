@@ -119,6 +119,7 @@ fun AgentScreen(
                     }
                 }
                 view.problem?.let { Text(it, Modifier.padding(tokens.screenMargin), color = MaterialTheme.colorScheme.error) }
+                if (view.truncated) Text("The start of this long transcript is no longer on the server.", Modifier.padding(tokens.screenMargin), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (view.loading && items.isEmpty()) Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 else if (items.isEmpty() && view.problem == null) Text("Nothing in this agent's transcript yet.", Modifier.padding(tokens.screenMargin), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 LazyColumn(Modifier.fillMaxSize().navigationBarsPadding(), state = list, contentPadding = PaddingValues(vertical = 8.dp)) {

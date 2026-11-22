@@ -44,6 +44,25 @@ class AgentsTest {
         assertEquals(2025856L, done.elapsedMs(0))
     }
 
+    @Test fun `a refresh read while the stream ran keeps what the stream updated meanwhile`() {
+        fun update(json: String) = AgentMessage.parse(json)
+        val before = AgentsState.of(list)
+        val running = list.agents.first { it.running }
+        // The stream says done (and the run completed) while /agents was in flight with the old state.
+        val done = update("""{"type":"agent_update","sessionId":"s","agent":{"id":"${running.id}","kind":"workflow","runId":"${running.runId}","label":"x","state":"done","toolCount":1}}""")
+        val completed = update("""{"type":"workflow_update","sessionId":"s","workflow":{"runId":"${running.runId}","status":"completed","agentsDone":2,"agentsTotal":2}}""")
+        val now = before.reduce(done).reduce(completed)
+        val touched = setOfNotNull(AgentsState.touchedKey(done), AgentsState.touchedKey(completed))
+        val refreshed = now.refreshedWith(list, touched)
+        assertEquals(AgentState.DONE, refreshed.agents.getValue(running.id).state)
+        assertEquals(WorkflowStatus.COMPLETED, refreshed.workflows.getValue(running.runId!!).status)
+        assertFalse(refreshed.anyRunning)
+        // Untouched entries take the answer; with nothing touched it is the answer.
+        assertEquals(before.agents - running.id, refreshed.agents - running.id)
+        assertEquals(before, now.refreshedWith(list, emptySet()))
+        assertNull(AgentsState.touchedKey(AgentMessage.parse("""{"type":"text_delta","text":"x"}""")))
+    }
+
     @Test fun `elapsed runs to now while running and to the end after`() {
         val running = list.agents.first { it.running }
         val start = java.time.Instant.parse(running.startedAt).toEpochMilli()
@@ -141,7 +160,7 @@ class AgentsTest {
         FakeAgentd().use { fake ->
             // 42 messages with ids, then 2 workflow and 5 agent updates with an empty `id:` line.
             val messages = withTimeout(15_000) {
-                fake.client().events("fx-session", agents = true, backoff = { 20L })
+                fake.client().events("fx-session", agents = { true }, backoff = { 20L })
                     .filterIsInstance<StreamEvent.Message>().map { it.message }.take(49).toList()
             }
             val updates = messages.filter { it is AgentMessage.AgentUpdate || it is AgentMessage.WorkflowUpdate }
@@ -172,6 +191,21 @@ class AgentsTest {
             assertTrue(fake.urls.single().contains("agentId=a0000000000000005"))
             val agents = fake.client().agents("fx-session")
             assertEquals(list, agents)
+        }
+    }
+
+    @Test fun `whether to ask for agents is decided before every connection`() = runBlocking {
+        FakeAgentd().use { fake ->
+            // Each /events answer ends, so the client reconnects: agentd first, then (rolled back) not.
+            var asks = 0
+            withTimeout(15_000) {
+                fake.client().events("fx-session", agents = { asks++ == 0 }, backoff = { 20L })
+                    .filterIsInstance<StreamEvent.Connected>().take(3).toList()
+            }
+            val events = fake.urls.filter { "/api/events" in it }
+            assertTrue(events.size >= 3)
+            assertTrue(events[0].contains("agents=1"))
+            assertTrue(events.drop(1).none { it.contains("agents") })
         }
     }
 

@@ -73,14 +73,15 @@ internal fun backoffMs(attempt: Int): Long = (1000L shl attempt.coerceAtMost(5))
  *
  * agentd only (S11): [agents] adds `agent_update` / `workflow_update` (id-less state, the full set again on
  * each connect); [agentId] streams that subagent's transcript instead of the session's. Never pass either
- * to even-terminal: check [ServerInfo.isAgentd] first.
+ * to even-terminal: check [ServerInfo.isAgentd] first. [agents] is asked before every connection, so a
+ * server that changed behind the same address (agentd rolled back to even-terminal) stops getting it.
  */
 fun EvenTerminalClient.events(
     sessionId: String,
     provider: String? = null,
     known: Map<Long, Int> = emptyMap(),
     backoff: (attempt: Int) -> Long = ::backoffMs,
-    agents: Boolean = false,
+    agents: suspend () -> Boolean = { false },
     agentId: String? = null,
 ): Flow<StreamEvent> = flow {
     val dedup = Deduplicator(known)
@@ -90,7 +91,7 @@ fun EvenTerminalClient.events(
         var authFailed = false
         var failure: Throwable? = null
         var delivered = false
-        connectOnce(sessionId, provider, agents, agentId).collect { item ->
+        connectOnce(sessionId, provider, agents(), agentId).collect { item ->
             when (item) {
                 is RawSse.Open -> { emit(StreamEvent.Connected(connectedOnce)); connectedOnce = true }
                 is RawSse.Data -> {

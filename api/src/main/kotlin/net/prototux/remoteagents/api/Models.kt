@@ -80,7 +80,8 @@ internal data class HistoryResponse(val history: List<HistoryEntry> = emptyList(
  * `/messages` answer: the ring buffer after a given id, plus the session state. [agentId] is agentd's echo
  * of an agent transcript request; a server that does not echo it ignored `agentId` and sent the session's.
  */
-data class MessagesPage(val messages: List<AgentMessage>, val state: String?, val agentId: String? = null)
+/** [truncated] (agentd, agent transcripts): the server no longer holds the start of what was asked for. */
+data class MessagesPage(val messages: List<AgentMessage>, val state: String?, val agentId: String? = null, val truncated: Boolean = false)
 
 /** Session states as `/status` and `/sessions` report them. */
 object SessionState {

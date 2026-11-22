@@ -168,8 +168,31 @@ data class AgentsState(
             return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
         }
 
+    /**
+     * The state from a `/agents` answer read while the stream stayed open: the agents and runs the stream
+     * updated meanwhile ([touched]: agent ids, and run ids prefixed with [RUN_KEY]) keep the stream's
+     * version, as the answer may predate it and agentd sends an update only when something changes.
+     */
+    fun refreshedWith(list: AgentsList, touched: Set<String>): AgentsState {
+        val fresh = of(list)
+        return AgentsState(
+            fresh.agents.filterKeys { it !in touched } + agents.filterKeys { it in touched },
+            fresh.workflows.filterKeys { RUN_KEY + it !in touched } + workflows.filterKeys { RUN_KEY + it in touched },
+        )
+    }
+
     companion object {
+        /** Prefix of a run id in [refreshedWith]'s touched set (agent and run ids could collide). */
+        const val RUN_KEY = "run:"
+
         fun of(list: AgentsList) = AgentsState(list.agents.associateBy { it.id }, list.workflows.associateBy { it.runId })
+
+        /** The key an update touches, for [refreshedWith]; null for other messages. */
+        fun touchedKey(m: AgentMessage): String? = when (m) {
+            is AgentMessage.AgentUpdate -> m.agent.id
+            is AgentMessage.WorkflowUpdate -> RUN_KEY + m.workflow.runId
+            else -> null
+        }
     }
 }
 

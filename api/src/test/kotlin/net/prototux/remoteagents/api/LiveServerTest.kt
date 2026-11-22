@@ -60,7 +60,7 @@ class LiveServerTest {
         val seen = mutableListOf<AgentMessage>()
         val start = System.currentTimeMillis()
         withTimeoutOrNull(20_000) {
-            c.events(session, agents = true).takeWhile { ev ->
+            c.events(session, agents = { true }).takeWhile { ev ->
                 if (ev is StreamEvent.Message) seen += ev.message else println("stream event after ${System.currentTimeMillis() - start} ms: $ev")
                 !seen.filterIsInstance<AgentMessage.AgentUpdate>().map { it.agent.id }.containsAll(list.agents.map { it.id })
             }.collect {}

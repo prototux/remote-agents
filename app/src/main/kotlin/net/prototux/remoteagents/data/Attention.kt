@@ -49,7 +49,8 @@ object AttentionRules {
      * Whether a session's stream stays open: while it is on screen, or while it is watched and working.
      * The foreground service runs exactly while some session is watched and working. Running subagents or
      * workflow runs count as working (agentd S11): a background workflow runs while the session itself is
-     * idle, and its progress is what the owner follows. agentd ends a stale run after 45 min.
+     * idle, and its progress is what the owner follows. agentd ends an agent at its task notification, and a stale one after 45 min
+     * (2 h while the session's process lives).
      */
     fun keepOpen(onScreen: Boolean, watched: Boolean, t: Transcript, agents: AgentsState = AgentsState()) =
         onScreen || needsService(watched, t, agents)

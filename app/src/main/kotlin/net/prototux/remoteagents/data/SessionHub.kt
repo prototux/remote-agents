@@ -2,6 +2,7 @@ package net.prototux.remoteagents.data
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -14,6 +15,7 @@ import net.prototux.remoteagents.api.AgentsState
 import net.prototux.remoteagents.api.ApiException
 import net.prototux.remoteagents.api.AuthFailedException
 import net.prototux.remoteagents.api.EvenTerminalClient
+import net.prototux.remoteagents.api.MessagesPage
 import net.prototux.remoteagents.api.Reach
 import net.prototux.remoteagents.api.SessionLiveException
 import net.prototux.remoteagents.api.SessionState
@@ -53,6 +55,8 @@ data class AgentView(
     val link: Link = Link.Connecting,
     val loading: Boolean = true,
     val problem: String? = null,
+    /** agentd no longer holds the start of this agent's transcript (a very long agent). */
+    val truncated: Boolean = false,
 )
 
 /**
@@ -74,6 +78,8 @@ class SessionHub(
         var onScreen = 0
         var job: Job? = null
         val t get() = state.value.transcript
+        /** Agents and runs the stream updated while a `/agents` refresh is in flight; null when none is. */
+        var touched: MutableSet<String>? = null
 
         fun start() {
             if (job?.isActive == true) return
@@ -97,12 +103,22 @@ class SessionHub(
             AttentionRules.onSnapshot(key, t).forEach { onAlert(it, state.value) }
 
             // Subagents and workflows exist only on agentd; even-terminal never gets agents=1 or /agents.
+            // Whether the server is agentd is asked again before each reconnect: the owner may have rolled
+            // back to even-terminal behind the same address.
+            var recheck = false
             val agentd = isAgentd(client)
             if (agentd) runCatching { client.agents(key.sessionId, provider) }.getOrNull()?.let { publishAgents(AgentsState.of(it)) }
+            val agentsParam: suspend () -> Boolean = {
+                isAgentd(client, recheck).also { on ->
+                    recheck = false
+                    if (!on) publishAgents(AgentsState()) // what an earlier agentd sent is no longer followed
+                }
+            }
 
-            client.events(key.sessionId, provider, t.knownIds, agents = agentd).collect { ev ->
+            client.events(key.sessionId, provider, t.knownIds, agents = agentsParam).collect { ev ->
                 when (ev) {
                     is StreamEvent.Message -> if (ev.message is AgentMessage.AgentUpdate || ev.message is AgentMessage.WorkflowUpdate) {
+                        AgentsState.touchedKey(ev.message)?.let { touched?.add(it) }
                         publishAgents(state.value.agents.reduce(ev.message))
                     } else {
                         val next = this.t.reduce(ev.message)
@@ -112,6 +128,7 @@ class SessionHub(
                     is StreamEvent.Connected -> publish(link = Link.Live)
                     is StreamEvent.Disconnected -> {
                         if (ev.error?.findPinMismatch() != null) { certificateChanged(); job?.cancel(); return@collect }
+                        recheck = true
                         publish(link = Link.Retrying(ev.retryInMs, ev.error?.message))
                     }
                     StreamEvent.Reset -> publish(transcript = Transcript())
@@ -284,19 +301,32 @@ class SessionHub(
 
     fun unwatchAll() { watched.clear(); evaluate() }
 
-    /** Whether [client]'s server is agentd. Asked once per client; an unreachable server counts as not agentd, unremembered. */
-    private suspend fun isAgentd(client: EvenTerminalClient): Boolean {
-        agentdClients[client]?.let { return it }
-        val info = runCatching { client.info() }.getOrNull() ?: return false
+    /**
+     * Whether [client]'s server is agentd, from `/info`. Remembered per client; [recheck] asks again (after a
+     * failed connection). An unreachable server keeps the last answer, or counts as not agentd, unremembered.
+     */
+    private suspend fun isAgentd(client: EvenTerminalClient, recheck: Boolean = false): Boolean {
+        val known = agentdClients[client]
+        if (known != null && !recheck) return known
+        val info = runCatching { client.info() }.getOrNull() ?: return known ?: false
         return info.isAgentd.also { agentdClients[client] = it }
     }
 
-    /** Reads the agents list again (the panel opening); the stream keeps it current after that. */
+    /**
+     * Reads the agents list again (the panel opening); the stream keeps it current after that. What the stream
+     * updates while the request is in flight wins over the answer, which may be older.
+     */
     suspend fun refreshAgents(key: SessionKey) {
         val l = live[key] ?: return
         val client = clients.get(key.serverId) ?: return
         if (!isAgentd(client)) return
-        l.publishAgents(AgentsState.of(client.agents(key.sessionId, provider(key))))
+        val touched = HashSet<String>().also { l.touched = it }
+        try {
+            val list = client.agents(key.sessionId, provider(key))
+            l.publishAgents(l.state.value.agents.refreshedWith(list, touched))
+        } finally {
+            if (l.touched === touched) l.touched = null
+        }
     }
 
     /**
@@ -308,25 +338,36 @@ class SessionHub(
         val provider = provider(key)
         var v = AgentView()
         emit(v)
-        val page = try {
-            client.messages(key.sessionId, provider = provider, agentId = agentId)
-        } catch (e: AuthFailedException) {
-            servers.update(key.serverId) { it.copy(needsRepair = true) }
-            emit(v.copy(link = Link.AuthFailed, loading = false)); return@flow
-        } catch (e: ApiException) {
-            if (e.httpStatus == 404) { emit(v.copy(link = Link.Stopped, loading = false, problem = "The server no longer knows this agent.")); return@flow }
-            null
-        } catch (e: Exception) {
-            if (e.findPinMismatch() != null) { emit(v.copy(link = Link.CertificateChanged, loading = false)); return@flow }
-            null
+        val noAgents = "This server can't show agent transcripts."
+        if (!isAgentd(client, recheck = true)) { emit(v.copy(link = Link.Stopped, loading = false, problem = noAgents)); return@flow }
+        // The first page must come from agentd, echoing the agent: a failed one is asked again, never skipped,
+        // as /events?agentId= on a server without S11 would stream the session's own transcript.
+        var attempt = 0
+        var page: MessagesPage? = null
+        while (page == null) {
+            try {
+                page = client.messages(key.sessionId, provider = provider, agentId = agentId)
+            } catch (e: AuthFailedException) {
+                servers.update(key.serverId) { it.copy(needsRepair = true) }
+                emit(v.copy(link = Link.AuthFailed, loading = false)); return@flow
+            } catch (e: ApiException) {
+                if (e.httpStatus == 404) { emit(v.copy(link = Link.Stopped, loading = false, problem = "The server no longer knows this agent.")); return@flow }
+                v = v.copy(link = Link.Retrying(retryMs(attempt), e.message))
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                if (e.findPinMismatch() != null) { emit(v.copy(link = Link.CertificateChanged, loading = false)); return@flow }
+                v = v.copy(link = Link.Retrying(retryMs(attempt), e.message))
+            }
+            if (page == null) { emit(v); delay(retryMs(attempt++)) }
         }
+        val first = page ?: return@flow // never null: the loop ends with a page
         // A server without S11 ignores agentId and pages the session itself: never show that as the agent.
-        if (page != null && page.agentId != agentId) {
-            emit(v.copy(link = Link.Stopped, loading = false, problem = "This server can't show agent transcripts.")); return@flow
+        if (first.agentId != agentId) {
+            emit(v.copy(link = Link.Stopped, loading = false, problem = noAgents)); return@flow
         }
-        var t = Transcript().reduceNew(page?.messages.orEmpty())
-        page?.state?.let { t = t.withServerState(it) }
-        v = v.copy(transcript = t, loading = false)
+        var t = Transcript().reduceNew(first.messages)
+        first.state?.let { t = t.withServerState(it) }
+        v = v.copy(transcript = t, loading = false, link = Link.Connecting, truncated = first.truncated)
         emit(v)
         var pinChanged = false
         client.events(key.sessionId, provider, t.knownIds, agentId = agentId)
@@ -343,6 +384,9 @@ class SessionHub(
             }
         if (pinChanged) emit(v.copy(link = Link.CertificateChanged))
     }
+
+    /** Backoff for the first page of an agent: 1 s doubling up to 30 s, as the stream's. */
+    private fun retryMs(attempt: Int): Long = (1000L shl attempt.coerceAtMost(5)).coerceAtMost(30_000L)
 
     private fun evaluate() {
         val stop = live.values.filter { l ->

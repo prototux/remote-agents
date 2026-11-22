@@ -41,7 +41,7 @@ class EvenTerminalClient(val endpoint: Endpoint, base: OkHttpClient = OkHttpClie
     suspend fun messages(sessionId: String, after: Long = 0, provider: String? = null, agentId: String? = null): MessagesPage {
         val json: JsonObject = get("messages", "sessionId" to sessionId, "after" to after.toString(), "provider" to provider, "agentId" to agentId)
         val list = (json["messages"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonObject)?.let { o -> AgentMessage.parse(o) } }
-        return MessagesPage(list, json.str("state"), json.str("agentId"))
+        return MessagesPage(list, json.str("state"), json.str("agentId"), json.bool("truncated") == true)
     }
 
     /** A session's subagents and workflow runs (agentd S11; even-terminal answers 404). */
