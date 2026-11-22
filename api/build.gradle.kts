@@ -18,3 +18,6 @@ dependencies {
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.okhttp.tls)
 }
+
+// Opt-in read-only test against a real server: ET_TOKEN=... ./gradlew :api:test --tests '*LiveServerTest*'
+tasks.withType<Test>().configureEach { System.getenv("ET_TOKEN")?.let { environment("ET_TOKEN", it) } }

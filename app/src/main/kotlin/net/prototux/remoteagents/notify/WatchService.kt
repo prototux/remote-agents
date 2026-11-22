@@ -3,6 +3,7 @@ package net.prototux.remoteagents.notify
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,7 +23,10 @@ class WatchService : Service() {
     override fun onCreate() {
         super.onCreate()
         val container = (application as RemoteAgentsApp).container
-        startForeground(Notifier.ONGOING_ID, container.notifier.ongoing(container.hub.working.value), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        val notification = container.notifier.ongoing(container.hub.working.value)
+        // The specialUse type exists from Android 14; earlier versions take the service without a type.
+        if (Build.VERSION.SDK_INT >= 34) startForeground(Notifier.ONGOING_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        else startForeground(Notifier.ONGOING_ID, notification)
         scope.launch {
             container.hub.working.collect { working ->
                 if (working.isEmpty()) stopSelf()

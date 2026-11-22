@@ -44,6 +44,9 @@ object TlsProbe {
      * so the owner can compare the fingerprint before pinning it.
      */
     fun fetchChain(host: String, port: Int, timeoutMs: Int = 10_000): List<PeerCertificate> {
+        // Accepting any chain is safe here only because nothing is sent over this socket: it exists to show
+        // the owner the key, and trust comes from their confirming it (then PinnedTrustManager enforces it).
+        @Suppress("CustomX509TrustManager")
         val acceptAll = object : X509TrustManager {
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
