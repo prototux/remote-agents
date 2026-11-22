@@ -83,7 +83,8 @@ injection yet. Built on the spike findings (`server-protocols.md`), which correc
 - **drive** is `none` and `canApprove` false for every session in this step. `POST /prompt` to a terminal session
   answers 409 `session_live`, also with `force`/`fork` (never fork until the owner decides how); every other
   driving call answers 501 `driving not implemented yet` after the usual 400/404 checks.
-- **Buffer**: ids are one monotonic counter for all sessions (unique and increasing per session too). 500 messages
+- **Buffer**: ids are one monotonic counter per session (changed in the review fixes below; first one counter
+  for all sessions). 500 messages
   per session, but the start of a turn in progress is kept (up to 2 500) so a client joining mid-turn sees it.
   A subscriber more than 1 024 messages behind is dropped; it reconnects and replays.
 - **Following**: the first `/events` or `/messages` of a session parses its whole transcript into the buffer
@@ -182,3 +183,41 @@ Hosting, hooks and terminal delivery, on the formats verified in `server-protoco
   the calling shell's (tmux behaviour).
 - **Not in this step**: TLS flags, agentd's own config file, a pi approval extension, answering terminal
   questions by keys, Codex.
+
+## agentd review fixes (2026-11-22)
+
+Fixes from the security and correctness review of steps 1-2. Choices inside the agreed design; the ones marked
+**(owner)** change wire behaviour additively and are easy to revert.
+
+- **Request ids (owner)**: every pending permission/question has an id, its `toolUseId` (the agent's, the
+  matching PreToolUse's for hook calls, or `agentd_<hex>`). `/permission-response` and `/question-response`
+  accept an optional `toolUseId`; without it only a lone pending request of that kind is answered. Several
+  pending, or an id no longer pending, answer `409 {"error", "code":"request_not_pending"}`. A request that
+  ends unanswered publishes `permission_result` with decision `expired` (or `question_answer` with no
+  answers); results carry `toolUseId`. The app sends the id from the sheet and the notification actions and
+  matches results by it. Rejected: answering the newest (what clients show) without an id, since a stale tap
+  would still reach a newer request.
+- **Message ids per session**: the same transcript replays under the same ids after a restart, so clients see
+  duplicates or a known id with other content (their reset signal), never a second copy under higher ids.
+  Rejected: an epoch field in `/info` and messages (needs a client change for every client).
+- **tmux delivery** is refused while the broker holds a request, while the hook receiver saw a PermissionRequest
+  whose tool call has not finished, while the registry read without cache says waiting, and for sessions neither
+  the registry nor the hooks report on. A pane counts only when the agent's controlling tty is the pane's and its
+  process group is the foreground group. Text goes as `send-keys -l -- <text>` with a trailing `;` escaped.
+- **Liveness without a registry**: every session of the directory written since an unnamed process started is
+  live; only one process with one such session is an exact match (pid, pane, tmux). The rest are live with drive
+  `none`, so `/prompt` answers 409 unless `force`.
+- **Hook auth**: the relay never sends the secret; it signs `v1 <ts> <nonce> HMAC(secret, req…body)` and prints an
+  answer only with a valid `X-Agentd-Reply` HMAC. The receiver refuses stale (±5 min) or replayed calls and calls
+  with `Forwarded`/`X-Forwarded-For`/`X-Real-IP`. `hooks install` warns when agentd does not answer on the port.
+- **Stop-hook queue**: entries expire after 30 min and are dropped on SessionEnd (notification "Not delivered");
+  queueing without an explicit `drive` is refused when the registry says idle.
+- **Hosted processes**: unregistered before `exited` closes; the idle timer marks closing under its lock;
+  `WaitDelay` 5 s; `BRIDGE_TOKEN`, `PORT`, `EVEN_ALLOW_CORS` removed from their environment.
+- **Bounds**: session ids must match `[A-Za-z0-9][A-Za-z0-9_-]{0,127}` (no glob patterns); `/history` reads from the
+  end; SSE writes have a 30 s deadline; hub entries for unknown ids are forgotten with their last watcher.
+- **settings.json**: written without HTML escaping, through symlinks, and not at all when the file changed
+  between read and rename.
+- **Open (owner)**: `/sessions` without `?provider=` still merges claude and pi; NothingEven never sends the
+  parameter and was built against single-provider lists. Options: default to the configured provider (merged only
+  with `?provider=all`), or keep the merge after checking NothingEven tolerates `provider:"pi"`.
