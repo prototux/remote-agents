@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  even-terminal speaks plain HTTP, and Android cannot allow cleartext per IP address, so it is allowed here.
+  What actually restricts traffic is per server, in code: GuardedDns refuses public addresses unless the
+  server uses HTTPS with a pinned key (or the owner overrode it), and an interceptor refuses any other origin.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

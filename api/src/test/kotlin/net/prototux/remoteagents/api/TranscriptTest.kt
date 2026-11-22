@@ -65,6 +65,21 @@ class TranscriptTest {
         assertEquals(listOf("Past", "Past", "Prompt"), t.items.map { it::class.simpleName })
     }
 
+    @Test fun `reading the backlog again applies nothing twice`() {
+        val t = Transcript().reduceAll(turn.take(10))
+        val again = t.reduceNew(turn)
+        assertEquals(Transcript().reduceAll(turn), again)
+        val restarted = t.reduceNew(listOf(AgentMessage.parse("""{"type":"user_prompt","text":"new server"}""", 1)))
+        assertEquals("new server", (restarted.items.single() as TranscriptItem.Prompt).text)
+    }
+
+    @Test fun `server state wins`() {
+        val pending = Transcript().reduceAll(turn.take(12))
+        val idle = pending.withServerState(SessionState.IDLE)
+        assertNull(idle.pendingPermission)
+        assertFalse(idle.busy)
+    }
+
     @Test fun `unsupported events become items`() {
         val t = Transcript().reduce(AgentMessage.parse("""{"type":"future_thing"}""", 5))
         assertTrue(t.items.single() is TranscriptItem.Unknown)

@@ -98,6 +98,28 @@ data class Transcript(
 
     fun reduceAll(messages: Iterable<AgentMessage>) = messages.fold(this) { t, m -> t.reduce(m) }
 
+    /**
+     * Applies only the messages not applied yet (a backlog read again after a pause). If the backlog shows
+     * the server restarted, the transcript starts over from it.
+     */
+    fun reduceNew(messages: Iterable<AgentMessage>): Transcript {
+        val dedup = Deduplicator(knownIds)
+        var t = this
+        for (m in messages) when (dedup.check(m.id, m.fingerprint)) {
+            Deduplicator.Verdict.New -> t = t.reduce(m)
+            Deduplicator.Verdict.Duplicate -> Unit
+            Deduplicator.Verdict.Reset -> t = Transcript().reduce(m)
+        }
+        return t
+    }
+
+    /** The state the server reports (`/messages`, `/status`) wins over what the backlog implies. */
+    fun withServerState(serverState: String): Transcript = when (serverState) {
+        SessionState.IDLE -> copy(state = SessionState.IDLE, phase = Phase.None, stats = null, pendingPermission = null, pendingQuestion = null)
+        SessionState.BUSY, SessionState.AWAITING -> copy(state = serverState)
+        else -> this
+    }
+
     /** Shows a prompt immediately, before the server echoes it back. */
     fun withLocalPrompt(text: String) = copy(items = items + TranscriptItem.Prompt(text, pending = true, key = "l${items.size}"))
 
