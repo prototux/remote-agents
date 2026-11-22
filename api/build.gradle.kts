@@ -20,4 +20,5 @@ dependencies {
 }
 
 // Opt-in read-only test against a real server: ET_TOKEN=... ./gradlew :api:test --tests '*LiveServerTest*'
-tasks.withType<Test>().configureEach { listOf("ET_TOKEN", "ET_HOST", "ET_PORT").forEach { k -> System.getenv(k)?.let { environment(k, it) } } }
+// (ET_SESSION=<id of a session with subagents> adds the agentd S11 check.)
+tasks.withType<Test>().configureEach { listOf("ET_TOKEN", "ET_HOST", "ET_PORT", "ET_SESSION").forEach { k -> System.getenv(k)?.let { environment(k, it) } } }
