@@ -246,3 +246,13 @@ The app uses agentd's extensions and keeps working against plain even-terminal (
   The fork opens as a new watched session titled "Fork: <title>".
 - **Not used yet**: `force` (no UI: it writes one transcript from two processes), `drive` selection, `canApprove`
   in the UI (parsed only).
+
+## agentd after review, owner decisions 2026-11-22
+
+| # | Topic | Decision |
+|---|---|---|
+| S6 | `/sessions` without `?provider=` | Merge Claude and pi by default, **configurable** (which providers the unfiltered list includes). `?provider=` still filters. |
+| S7 | Terminal sessions | Keep all three: AskUserQuestion answered from the phone through the PermissionRequest hook; inbox delivery (after tmux); Stop-hook delivery (last). |
+| S8 | Hosted safety | Permission requests and questions in hosted sessions are **denied after a timeout** (default 30 min, configurable); hosted pi loads an **approval extension** so tools ask the phone; `force:true` **never** hosts a session that is live in a terminal (409 `session_live`); the additive wire extensions (toolUseId, 409 `request_not_pending`, decision `expired`, per-session ids) are accepted. |
+| S9 | Cutover | Now: install the hooks (with backup), stop even-terminal, run agentd on port 3456 as a systemd user service. |
+| S10 | Defaults accepted | Hook secret through `agentd hooks relay` (0600 file, not in settings.json); refuse to start without a token; network mode `expose` refuses to start; `/info` unchanged; app skips the resume warning when even-terminal already hosts the session, no "force" button, shows when a terminal session's approvals can't reach the phone. |
