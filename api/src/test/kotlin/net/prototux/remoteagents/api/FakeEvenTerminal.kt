@@ -15,12 +15,20 @@ import java.util.concurrent.CopyOnWriteArrayList
  * stops at a permission request; the permission answer runs to a question; the question answer finishes
  * the turn. Each `/events` connection replays the whole buffer and then ends, which also exercises the
  * client's reconnect and de-duplication on every step.
+ *
+ * [reach] turns it into agentd for the sessions it names: `/sessions` and `/status` carry `liveness`,
+ * `drive` and `canApprove`, a prompt to a watch-only terminal session answers 409 `session_live` unless
+ * `fork` or `force`, and `fork` answers with a new session id. Sessions not in [reach] stay plain.
  */
 class FakeEvenTerminal(val token: String = "0123456789abcdef0123456789abcdef") : AutoCloseable {
     val server = MockWebServer()
     /** Requests that carried the token in the URL: must stay empty. */
     val tokenInUrl = CopyOnWriteArrayList<String>()
     private val sessions = LinkedHashMap<String, MutableList<JsonObject>>()
+    /** agentd's view of each session (see the class comment). */
+    val reach = java.util.concurrent.ConcurrentHashMap<String, Reach>()
+    /** Bodies of every `/prompt` call, in order. */
+    val prompts = CopyOnWriteArrayList<JsonObject>()
     private var nextId = 1L
     private var nextSession = 1
 
@@ -40,6 +48,12 @@ class FakeEvenTerminal(val token: String = "0123456789abcdef0123456789abcdef") :
         json.forEach { list += JsonObject((ApiJson.parseToJsonElement(it) as JsonObject) + ("id" to JsonPrimitive(nextId++))) }
     }
 
+    /** A session the server lists without a buffer yet, e.g. one started in a terminal. */
+    @Synchronized fun addSession(id: String, reach: Reach? = null) {
+        sessions.getOrPut(id) { mutableListOf() }
+        reach?.let { this.reach[id] = it }
+    }
+
     /** Simulates a server restart: buffers and ids start over. */
     @Synchronized fun restart() { sessions.values.forEach { it.clear() }; nextId = 1 }
 
@@ -54,11 +68,11 @@ class FakeEvenTerminal(val token: String = "0123456789abcdef0123456789abcdef") :
             "GET /api/info" -> json(200, """{"account":{"email":"me@example.org","organization":"Org","subscriptionType":"max"},"model":"opus","version":"0.10.4","provider":"claude","extra":{"expose":"off"}}""")
             "GET /api/sessions" -> json(200, buildJsonObject {
                 put("sessions", kotlinx.serialization.json.JsonArray(sessions.keys.map { id ->
-                    buildJsonObject { put("id", id); put("title", "Session $id"); put("timestamp", "2026-11-22T13:45:20.147Z"); put("cwd", "/home/me/p"); put("provider", "claude"); put("status", state(id)) }
+                    buildJsonObject { put("id", id); put("title", "Session $id"); put("timestamp", "2026-11-22T13:45:20.147Z"); put("cwd", "/home/me/p"); put("provider", "claude"); put("status", state(id)); putReach(id) }
                 }))
             }.toString())
             "GET /api/status" -> if (sid == null || sid !in sessions) json(404, """{"error":"Session not found"}""")
-                else json(200, """{"state":"${state(sid)}","sessionId":"$sid","provider":"claude"}""")
+                else json(200, buildJsonObject { put("state", state(sid)); put("sessionId", sid); put("provider", "claude"); putReach(sid) }.toString())
             "GET /api/messages" -> {
                 val after = r.url.queryParameter("after")?.toLong() ?: 0
                 val list = sessions[sid].orEmpty().filter { (it.long("id") ?: 0) > after }
@@ -68,9 +82,16 @@ class FakeEvenTerminal(val token: String = "0123456789abcdef0123456789abcdef") :
                 ":ok\n\n" + sessions[sid].orEmpty().joinToString("") { "id: ${it.long("id")}\ndata: ${JsonObject(it - "id")}\n\n" } + ":heartbeat\n\n",
             ).build()
             "POST /api/prompt" -> {
+                prompts += body ?: JsonObject(emptyMap())
                 val text = body?.str("text") ?: return json(400, """{"error":"Missing 'text'"}""")
-                val id = sid ?: "s${nextSession++}"
                 if (sid != null && sid !in sessions) return json(404, """{"error":"Session not found"}""")
+                val fork = sid != null && body.bool("fork") && reach[sid] != null // even-terminal ignores fork
+                val r = sid?.let { reach[it] }
+                if (r != null && r.watchOnly && !fork && !body.bool("force")) {
+                    return json(409, """{"error":"Session is running in a terminal and cannot be driven","code":"session_live"}""")
+                }
+                val id = if (sid == null || fork) "s${nextSession++}" else sid
+                if (fork) reach[id] = Reach(Liveness.HOSTED, Drive.HOSTED, true)
                 emit(id, """{"type":"user_prompt","text":${JsonPrimitive(text)}}""", """{"type":"status","state":"busy","sessionId":"$id"}""",
                     """{"type":"text_delta","text":"Running tests."}""", """{"type":"tool_start","name":"Bash","toolId":"t1"}""",
                     """{"type":"permission_request","toolName":"Bash","description":"Run tests","detail":"npm test","toolUseId":"t1","options":[{"text":"Allow","key":"allow"},{"text":"Deny","key":"deny"}]}""")
@@ -105,6 +126,15 @@ class FakeEvenTerminal(val token: String = "0123456789abcdef0123456789abcdef") :
             "GET /api/boom" -> json(500, """{"error":"internal"}""")
             else -> json(404, """{"error":"Not found"}""")
         }
+    }
+
+    private fun JsonObject?.bool(key: String) = (this?.get(key) as? JsonPrimitive)?.content == "true"
+
+    private fun kotlinx.serialization.json.JsonObjectBuilder.putReach(id: String) {
+        val r = reach[id] ?: return
+        r.liveness?.let { put("liveness", it) }
+        r.drive?.let { put("drive", it) }
+        r.canApprove?.let { put("canApprove", it) }
     }
 
     private fun pending(sid: String, request: String, answer: String): JsonObject? {

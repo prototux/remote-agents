@@ -12,6 +12,12 @@ data class SessionSummary(
     val provider: String? = null,
     /** `idle | busy | awaiting`; the server back-fills it for the first 10 sessions only. */
     val status: String? = null,
+    /** agentd extension ([Liveness]); absent on even-terminal. */
+    val liveness: String? = null,
+    /** agentd extension ([Drive]): how a prompt reaches the session; absent on even-terminal. */
+    val drive: String? = null,
+    /** agentd extension: the phone can answer this session's permission requests. */
+    val canApprove: Boolean? = null,
 )
 
 @Serializable
@@ -43,7 +49,15 @@ data class UpdateCheck(
 data class PromptAccepted(val ok: Boolean = false, val sessionId: String, val provider: String? = null)
 
 @Serializable
-data class StatusResponse(val state: String, val sessionId: String? = null, val provider: String? = null)
+data class StatusResponse(
+    val state: String,
+    val sessionId: String? = null,
+    val provider: String? = null,
+    // agentd extensions, as on [SessionSummary].
+    val liveness: String? = null,
+    val drive: String? = null,
+    val canApprove: Boolean? = null,
+)
 
 @Serializable
 data class HistoryEntry(val role: String, val text: String = "")
@@ -59,4 +73,21 @@ object SessionState {
     const val IDLE = "idle"
     const val BUSY = "busy"
     const val AWAITING = "awaiting"
+}
+
+/** agentd's `liveness` values. */
+object Liveness {
+    const val HOSTED = "hosted"
+    const val TERMINAL = "terminal"
+    const val ENDED = "ended"
+    const val UNKNOWN = "unknown"
+}
+
+/** agentd's `drive` values: how a prompt reaches the session. */
+object Drive {
+    const val HOSTED = "hosted"
+    const val TMUX = "tmux"
+    const val INBOX = "inbox"
+    const val STOPHOOK = "stophook"
+    const val NONE = "none"
 }

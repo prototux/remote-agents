@@ -48,13 +48,29 @@ class EvenTerminalClient(val endpoint: Endpoint, base: OkHttpClient = OkHttpClie
         return r.history
     }
 
-    /** Sends a prompt. Without [sessionId] this starts a new session; the answer carries its id. */
-    suspend fun prompt(text: String, sessionId: String? = null, provider: String? = null, cwd: String? = null): PromptAccepted =
+    /**
+     * Sends a prompt. Without [sessionId] this starts a new session; the answer carries its id.
+     *
+     * agentd extensions, sent only when set: [fork] continues [sessionId] in a new session (the answer
+     * carries the new id) and never touches the original; [force] drives a session that runs in a terminal
+     * anyway, so two processes write one transcript. Without them agentd answers [SessionLiveException] for a
+     * terminal session it cannot type into. even-terminal ignores both fields.
+     */
+    suspend fun prompt(
+        text: String,
+        sessionId: String? = null,
+        provider: String? = null,
+        cwd: String? = null,
+        fork: Boolean = false,
+        force: Boolean = false,
+    ): PromptAccepted =
         post("prompt", buildJsonObject {
             put("text", text)
             sessionId?.let { put("sessionId", it) }
             provider?.let { put("provider", it) }
             cwd?.let { put("cwd", it) }
+            if (fork) put("fork", true)
+            if (force) put("force", true)
         })
 
     /**

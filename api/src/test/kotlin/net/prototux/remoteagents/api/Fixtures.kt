@@ -3,6 +3,8 @@ package net.prototux.remoteagents.api
 import kotlinx.serialization.json.JsonObject
 
 object Fixtures {
+    fun text(name: String): String = javaClass.classLoader.getResource(name)!!.readText()
+
     fun lines(name: String): List<String> =
         javaClass.classLoader.getResource(name)!!.readText().lines().filter { it.isNotBlank() }
 

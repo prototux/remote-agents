@@ -1,0 +1,4 @@
+{"sessions":[
+{"id":"7d0c5a1e-2b44-4c1f-9e0a-1f2e3d4c5b6a","title":"Fix the failing test","timestamp":"2026-11-22T14:02:11.512Z","cwd":"/home/me/p","provider":"claude","status":"idle"},
+{"id":"0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d","title":"Refactor the parser","timestamp":"2026-11-22T13:58:40.003Z","cwd":"/home/me/p","provider":"claude"}
+]}
