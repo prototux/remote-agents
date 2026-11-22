@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import net.prototux.remoteagents.api.AgentMessage
 import net.prototux.remoteagents.api.QuestionDraft
@@ -69,6 +70,7 @@ fun ApprovalSheet(
 
 @Composable
 private fun ColumnScope.PermissionContent(r: AgentMessage.PermissionRequest, onDecide: (String) -> Unit, sending: Boolean) {
+    r.askedBy?.let { AskedBy(it) }
     Text("Allow ${r.toolName}?", style = MaterialTheme.typography.headlineSmall)
     r.description?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
     r.detail?.takeIf { it.isNotBlank() }?.let { CodeBlock(it, maxLines = 20) }
@@ -87,9 +89,17 @@ private fun ColumnScope.PermissionContent(r: AgentMessage.PermissionRequest, onD
     if (sending) CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
 }
 
+/** Which subagent asks (agentd S11): its request is answered on the session like any other. */
+@Composable
+private fun AskedBy(label: String) = Text(
+    "Subagent · $label", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
+    maxLines = 2, overflow = TextOverflow.Ellipsis,
+)
+
 @Composable
 private fun ColumnScope.QuestionContent(q: AgentMessage.UserQuestion, onAnswer: (Map<String, String>) -> Unit, sending: Boolean) {
     var draft by remember(q) { mutableStateOf(QuestionDraft(q.questions)) }
+    q.askedBy?.let { AskedBy(it) }
     q.questions.forEach { question ->
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             question.header?.let { Text(it.uppercase(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }

@@ -2,10 +2,16 @@ package net.prototux.remoteagents.data
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.launch
+import net.prototux.remoteagents.api.AgentMessage
+import net.prototux.remoteagents.api.AgentsState
+import net.prototux.remoteagents.api.ApiException
 import net.prototux.remoteagents.api.AuthFailedException
 import net.prototux.remoteagents.api.EvenTerminalClient
 import net.prototux.remoteagents.api.Reach
@@ -16,6 +22,7 @@ import net.prototux.remoteagents.api.Transcript
 import net.prototux.remoteagents.api.TranscriptItem
 import net.prototux.remoteagents.api.events
 import net.prototux.remoteagents.api.findPinMismatch
+import java.util.WeakHashMap
 
 /** The connection of one live session, as the UI shows it. */
 sealed interface Link {
@@ -36,6 +43,16 @@ data class LiveState(
     val transcript: Transcript = Transcript(),
     val link: Link = Link.Connecting,
     val loading: Boolean = true,
+    /** Subagents and workflow runs (agentd S11); always empty on even-terminal. */
+    val agents: AgentsState = AgentsState(),
+)
+
+/** One subagent's transcript, read-only (agentd S11). [problem] says why it cannot be shown. */
+data class AgentView(
+    val transcript: Transcript = Transcript(),
+    val link: Link = Link.Connecting,
+    val loading: Boolean = true,
+    val problem: String? = null,
 )
 
 /**
@@ -79,9 +96,15 @@ class SessionHub(
             publish(transcript = t, loading = false)
             AttentionRules.onSnapshot(key, t).forEach { onAlert(it, state.value) }
 
-            client.events(key.sessionId, provider, t.knownIds).collect { ev ->
+            // Subagents and workflows exist only on agentd; even-terminal never gets agents=1 or /agents.
+            val agentd = isAgentd(client)
+            if (agentd) runCatching { client.agents(key.sessionId, provider) }.getOrNull()?.let { publishAgents(AgentsState.of(it)) }
+
+            client.events(key.sessionId, provider, t.knownIds, agents = agentd).collect { ev ->
                 when (ev) {
-                    is StreamEvent.Message -> {
+                    is StreamEvent.Message -> if (ev.message is AgentMessage.AgentUpdate || ev.message is AgentMessage.WorkflowUpdate) {
+                        publishAgents(state.value.agents.reduce(ev.message))
+                    } else {
                         val next = this.t.reduce(ev.message)
                         publish(transcript = next, link = Link.Live)
                         AttentionRules.onLive(key, ev.message, next).forEach { onAlert(it, state.value) }
@@ -115,10 +138,18 @@ class SessionHub(
             evaluate()
         }
 
+        fun publishAgents(agents: AgentsState) {
+            if (agents == state.value.agents) return
+            state.value = state.value.copy(agents = agents)
+            evaluate()
+        }
+
         fun stop() { job?.cancel(); job = null; state.value = state.value.copy(link = Link.Stopped) }
     }
 
     private val live = HashMap<SessionKey, Live>()
+    /** Which clients talk to agentd (from `/info`), per client: a server edited to point elsewhere gets a new one. */
+    private val agentdClients = WeakHashMap<EvenTerminalClient, Boolean>()
     private val watched = HashSet<SessionKey>()
     /** Sessions this app started or already sent to (after the owner's go-ahead) in this process. */
     private val prompted = HashSet<SessionKey>()
@@ -253,12 +284,72 @@ class SessionHub(
 
     fun unwatchAll() { watched.clear(); evaluate() }
 
+    /** Whether [client]'s server is agentd. Asked once per client; an unreachable server counts as not agentd, unremembered. */
+    private suspend fun isAgentd(client: EvenTerminalClient): Boolean {
+        agentdClients[client]?.let { return it }
+        val info = runCatching { client.info() }.getOrNull() ?: return false
+        return info.isAgentd.also { agentdClients[client] = it }
+    }
+
+    /** Reads the agents list again (the panel opening); the stream keeps it current after that. */
+    suspend fun refreshAgents(key: SessionKey) {
+        val l = live[key] ?: return
+        val client = clients.get(key.serverId) ?: return
+        if (!isAgentd(client)) return
+        l.publishAgents(AgentsState.of(client.agents(key.sessionId, provider(key))))
+    }
+
+    /**
+     * One subagent's transcript (agentd S11): its backlog, then its stream, for as long as it is collected (the
+     * agent screen). Read-only, and it never alerts: the agent's requests reach the session's own stream.
+     */
+    fun followAgent(key: SessionKey, agentId: String): Flow<AgentView> = flow {
+        val client = clients.get(key.serverId) ?: run { emit(AgentView(link = Link.AuthFailed, loading = false)); return@flow }
+        val provider = provider(key)
+        var v = AgentView()
+        emit(v)
+        val page = try {
+            client.messages(key.sessionId, provider = provider, agentId = agentId)
+        } catch (e: AuthFailedException) {
+            servers.update(key.serverId) { it.copy(needsRepair = true) }
+            emit(v.copy(link = Link.AuthFailed, loading = false)); return@flow
+        } catch (e: ApiException) {
+            if (e.httpStatus == 404) { emit(v.copy(link = Link.Stopped, loading = false, problem = "The server no longer knows this agent.")); return@flow }
+            null
+        } catch (e: Exception) {
+            if (e.findPinMismatch() != null) { emit(v.copy(link = Link.CertificateChanged, loading = false)); return@flow }
+            null
+        }
+        // A server without S11 ignores agentId and pages the session itself: never show that as the agent.
+        if (page != null && page.agentId != agentId) {
+            emit(v.copy(link = Link.Stopped, loading = false, problem = "This server can't show agent transcripts.")); return@flow
+        }
+        var t = Transcript().reduceNew(page?.messages.orEmpty())
+        page?.state?.let { t = t.withServerState(it) }
+        v = v.copy(transcript = t, loading = false)
+        emit(v)
+        var pinChanged = false
+        client.events(key.sessionId, provider, t.knownIds, agentId = agentId)
+            .takeWhile { ev -> !(ev is StreamEvent.Disconnected && ev.error?.findPinMismatch() != null).also { pinChanged = it } }
+            .collect { ev ->
+                v = when (ev) {
+                    is StreamEvent.Message -> v.copy(transcript = v.transcript.reduce(ev.message), link = Link.Live)
+                    is StreamEvent.Connected -> v.copy(link = Link.Live)
+                    is StreamEvent.Disconnected -> v.copy(link = Link.Retrying(ev.retryInMs, ev.error?.message))
+                    StreamEvent.Reset -> v.copy(transcript = Transcript())
+                    StreamEvent.AuthFailed -> v.copy(link = Link.AuthFailed)
+                }
+                emit(v)
+            }
+        if (pinChanged) emit(v.copy(link = Link.CertificateChanged))
+    }
+
     private fun evaluate() {
         val stop = live.values.filter { l ->
-            l.job != null && !AttentionRules.keepOpen(l.onScreen > 0, l.key in watched, l.t)
+            l.job != null && !AttentionRules.keepOpen(l.onScreen > 0, l.key in watched, l.t, l.state.value.agents)
         }
         stop.forEach { it.stop() }
-        val working = live.values.filter { AttentionRules.needsService(it.key in watched, it.t) && it.job != null }.map { it.state.value }
+        val working = live.values.filter { AttentionRules.needsService(it.key in watched, it.t, it.state.value.agents) && it.job != null }.map { it.state.value }
         if (working != _working.value) _working.value = working
         val need = working.isNotEmpty()
         if (need != serviceOn) { serviceOn = need; onServiceNeeded(need) }

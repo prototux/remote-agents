@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -22,6 +23,8 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -85,6 +88,7 @@ fun SessionScreen(
     onBack: () -> Unit,
     onEditServer: (String) -> Unit,
     onOpenSession: (SessionKey, String?, String?) -> Unit,
+    onOpenAgent: (agentId: String, label: String) -> Unit,
 ) {
     val key = remember(serverId, sessionId) { SessionKey(serverId, sessionId) }
     val hub = container.hub
@@ -99,6 +103,7 @@ fun SessionScreen(
     var sending by remember { mutableStateOf(false) }
     var sheet by rememberSaveable { mutableStateOf(openSheet) }
     var menu by remember { mutableStateOf(false) }
+    var agentsOpen by rememberSaveable { mutableStateOf(false) }
     var watched by remember(key) { mutableStateOf(hub.isWatched(key)) }
     // A prompt waiting for the owner's go-ahead to resume the session in a new process; the fork dialog's text.
     var confirmSend by remember(key) { mutableStateOf<String?>(null) }
@@ -178,6 +183,13 @@ fun SessionScreen(
                 },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
+                    // Only agentd reports agents (S11); on even-terminal the list stays empty and this never shows.
+                    if (!state.agents.isEmpty) IconButton(onClick = { agentsOpen = true; scope.launch { runCatching { hub.refreshAgents(key) } } }) {
+                        val running = state.agents.runningCount
+                        BadgedBox(badge = { if (running > 0) Badge { Text("$running") } }) {
+                            Icon(AppIcons.Agents, if (running > 0) "Agents, $running running" else "Agents")
+                        }
+                    }
                     IconButton(onClick = { watched = !watched; hub.setWatched(key, watched) }) {
                         Icon(if (watched) Icons.Filled.Notifications else Icons.Outlined.Notifications, if (watched) "Stop following" else "Follow in background")
                     }
@@ -201,7 +213,8 @@ fun SessionScreen(
             Column(Modifier.navigationBarsPadding().imePadding()) {
                 AnimatedVisibility(t.awaitingInput) {
                     Banner(
-                        if (t.pendingPermission != null) "Waiting for your approval: ${t.pendingPermission!!.toolName}" else "The agent asks you a question",
+                        t.pendingPermission?.let { p -> "Waiting for your approval: ${p.toolName}" + (p.askedBy?.let { " (subagent $it)" } ?: "") }
+                            ?: t.pendingQuestion?.askedBy?.let { "Subagent $it asks you a question" } ?: "The agent asks you a question",
                         tokens.attention, tokens.onAttention, Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                     ) { TextButton(onClick = { sheet = true }) { Text("Answer", color = tokens.onAttention) } }
                 }
@@ -232,6 +245,7 @@ fun SessionScreen(
                     }
                 }
                 StatusStrip(t)
+                state.agents.statusLine?.let { line -> AgentsStrip(line) { agentsOpen = true } }
                 if (state.loading && items.isEmpty()) Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 else if (items.isEmpty()) Text("No messages in the server's buffer for this session yet.", Modifier.padding(tokens.screenMargin), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(vertical = 8.dp)) {
@@ -274,6 +288,8 @@ fun SessionScreen(
             dismissButton = { TextButton(onClick = { forkText = null }) { Text("Cancel") } },
         )
     }
+
+    if (agentsOpen) AgentsSheet(state.agents, onOpen = { agentsOpen = false; onOpenAgent(it.id, it.title) }, onDismiss = { agentsOpen = false })
 
     if (sheet && (t.pendingPermission != null || t.pendingQuestion != null)) {
         val permission = t.pendingPermission
@@ -328,6 +344,19 @@ private fun LinkBanner(link: Link, onEditServer: () -> Unit) {
             )
         }
         else -> Unit
+    }
+}
+
+/** What the session's subagents do ("workflow agentd-build · Review · 5/8 agents"); tapping opens the panel. */
+@Composable
+private fun AgentsStrip(line: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = tokens.screenMargin, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(AppIcons.Agents, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+        Text(line, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

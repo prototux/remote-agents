@@ -20,6 +20,24 @@ import net.prototux.remoteagents.data.LiveState
 import net.prototux.remoteagents.data.SessionKey
 import net.prototux.remoteagents.data.SettingsStore
 
+/** One session in the ongoing notification: its state, and its agents' status line when any run. */
+data class OngoingLine(val session: String, val agents: String?)
+
+/**
+ * The ongoing notification's lines: one per session, plus its agents' status line (agentd S11) under it.
+ * The service re-posts only when these change, not on every agent update.
+ */
+fun ongoingLines(working: List<LiveState>): List<OngoingLine> = working.map { st ->
+    val t = st.transcript
+    val what = when {
+        t.pendingPermission != null -> if (t.pendingPermission!!.askedBy != null) "a subagent needs approval" else "needs approval"
+        t.pendingQuestion != null -> "asks a question"
+        !t.busy && st.agents.anyRunning -> "agents working"
+        else -> t.stats?.let { "working · " + Format.duration(it.durationMs) } ?: "working"
+    }
+    OngoingLine((st.meta.title?.let { Format.oneLine(it, 40) } ?: "Session") + " — " + what, st.agents.statusLine)
+}
+
 /**
  * Renders [Alert]s as notifications: one channel per kind, approval actions when there are at most three
  * options, quick answers and a free-text reply. Content is hidden on a secure lock screen
@@ -47,10 +65,11 @@ class Notifier(private val context: Context, private val settings: SettingsStore
             is Alert.Clear -> nm.cancel(id(alert.key, alert.kind))
             is Alert.Permission -> if (s.notifyApproval && !visible) {
                 val r = alert.request
+                val who = r.askedBy?.let { "Subagent: " + Format.oneLine(it, 60) }
                 val b = base(CH_APPROVAL, alert.key, Alert.Kind.Permission, provider, openSheet = true)
                     .setContentTitle("Allow ${r.toolName}?")
-                    .setContentText(Format.oneLine(r.description ?: r.detail))
-                    .setStyle(NotificationCompat.BigTextStyle().bigText(listOfNotNull(r.description, r.detail).joinToString("\n\n")))
+                    .setContentText(Format.oneLine(listOfNotNull(who, r.description ?: r.detail).joinToString(" · ")))
+                    .setStyle(NotificationCompat.BigTextStyle().bigText(listOfNotNull(who, r.description, r.detail).joinToString("\n\n")))
                     .setSubText(title)
                     .setCategory(NotificationCompat.CATEGORY_REMINDER)
                     .setPublicVersion(publicVersion(CH_APPROVAL, "A session needs your approval"))
@@ -67,12 +86,13 @@ class Notifier(private val context: Context, private val settings: SettingsStore
             is Alert.Question -> if (s.notifyQuestion && !visible) {
                 val qs = alert.question.questions
                 val first = qs.firstOrNull()
+                val who = alert.question.askedBy?.let { "Subagent: " + Format.oneLine(it, 60) }
                 val b = base(CH_QUESTION, alert.key, Alert.Kind.Question, provider, openSheet = true)
                     .setContentTitle(first?.header ?: "Question")
-                    .setContentText(Format.oneLine(first?.question))
-                    .setStyle(NotificationCompat.BigTextStyle().bigText(qs.joinToString("\n\n") { q ->
+                    .setContentText(Format.oneLine(listOfNotNull(who, first?.question).joinToString(" · ")))
+                    .setStyle(NotificationCompat.BigTextStyle().bigText(listOfNotNull(who, qs.joinToString("\n\n") { q ->
                         q.question + "\n" + q.options.joinToString("\n") { "• " + it.label }
-                    }))
+                    }).joinToString("\n\n")))
                     .setSubText(title)
                     .setPublicVersion(publicVersion(CH_QUESTION, "A session asks you a question"))
                 // Quick answers only for the simple case: one single-choice question with up to two options,
@@ -126,22 +146,13 @@ class Notifier(private val context: Context, private val settings: SettingsStore
 
     fun cancel(key: SessionKey, kind: Alert.Kind) = nm.cancel(id(key, kind))
 
-    fun ongoing(working: List<LiveState>): Notification {
-        val lines = working.map { st ->
-            val t = st.transcript
-            val what = when {
-                t.pendingPermission != null -> "needs approval"
-                t.pendingQuestion != null -> "asks a question"
-                else -> t.stats?.let { "working · " + Format.duration(it.durationMs) } ?: "working"
-            }
-            (st.meta.title?.let { Format.oneLine(it, 40) } ?: "Session") + " — " + what
-        }
+    fun ongoing(lines: List<OngoingLine>): Notification {
         val stop = Intent(context, ActionReceiver::class.java).setAction(ActionReceiver.ACTION_UNWATCH_ALL)
         return NotificationCompat.Builder(context, CH_WATCHING)
             .setSmallIcon(R.drawable.ic_stat)
-            .setContentTitle(if (working.size == 1) "Following 1 session" else "Following ${working.size} sessions")
-            .setContentText(lines.firstOrNull())
-            .setStyle(NotificationCompat.InboxStyle().also { st -> lines.forEach { st.addLine(it) } })
+            .setContentTitle(if (lines.size == 1) "Following 1 session" else "Following ${lines.size} sessions")
+            .setContentText(lines.firstOrNull()?.let { l -> listOfNotNull(l.session, l.agents).joinToString(" · ") })
+            .setStyle(NotificationCompat.InboxStyle().also { st -> lines.forEach { l -> st.addLine(l.session); l.agents?.let { st.addLine("   $it") } } })
             .setOngoing(true)
             .setSilent(true)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)

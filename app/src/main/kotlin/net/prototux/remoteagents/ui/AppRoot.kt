@@ -27,6 +27,8 @@ object Routes {
     const val ABOUT = "about"
     fun server(id: String) = "server/${Uri.encode(id)}"
     fun sessions(serverId: String) = "sessions/${Uri.encode(serverId)}"
+    fun agent(serverId: String, sessionId: String, agentId: String, label: String?) =
+        "agent/${Uri.encode(serverId)}/${Uri.encode(sessionId)}/${Uri.encode(agentId)}?label=${Uri.encode(label.orEmpty())}"
     fun session(serverId: String, sessionId: String, provider: String? = null, title: String? = null, sheet: Boolean = false) =
         "session/${Uri.encode(serverId)}/${Uri.encode(sessionId)}?provider=${Uri.encode(provider.orEmpty())}&title=${Uri.encode(title.orEmpty())}&sheet=$sheet"
 }
@@ -99,6 +101,26 @@ fun AppRoot(container: Container, openRequest: MutableStateFlow<OpenRequest?>) {
                 onBack = { if (!nav.popBackStack()) nav.navigate(Routes.SERVERS) },
                 onEditServer = { nav.navigate(Routes.server(it)) },
                 onOpenSession = { key, provider, title -> nav.navigate(Routes.session(key.serverId, key.sessionId, provider, title)) },
+                onOpenAgent = { agentId, label -> nav.navigate(Routes.agent(a.getString("serverId")!!, a.getString("sessionId")!!, agentId, label)) },
+            )
+        }
+        composable(
+            "agent/{serverId}/{sessionId}/{agentId}?label={label}",
+            listOf(
+                navArgument("serverId") { type = NavType.StringType },
+                navArgument("sessionId") { type = NavType.StringType },
+                navArgument("agentId") { type = NavType.StringType },
+                navArgument("label") { type = NavType.StringType; defaultValue = "" },
+            ),
+        ) { e ->
+            val a = e.arguments!!
+            AgentScreen(
+                container,
+                serverId = a.getString("serverId")!!,
+                sessionId = a.getString("sessionId")!!,
+                agentId = a.getString("agentId")!!,
+                label = a.getString("label")?.ifBlank { null },
+                onBack = { nav.popBackStack() },
             )
         }
         composable(Routes.SETTINGS) { SettingsScreen(container, onBack = { nav.popBackStack() }, onAbout = { nav.navigate(Routes.ABOUT) }) }

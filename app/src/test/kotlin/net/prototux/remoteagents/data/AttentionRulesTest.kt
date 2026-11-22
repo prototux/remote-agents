@@ -1,6 +1,7 @@
 package net.prototux.remoteagents.data
 
 import net.prototux.remoteagents.api.AgentMessage
+import net.prototux.remoteagents.api.AgentsState
 import net.prototux.remoteagents.api.SessionState
 import net.prototux.remoteagents.api.Transcript
 import org.junit.Assert.assertEquals
@@ -43,5 +44,18 @@ class AttentionRulesTest {
         assertFalse(AttentionRules.keepOpen(onScreen = false, watched = false, t = busy))
         assertTrue(AttentionRules.needsService(watched = true, t = Transcript(state = SessionState.AWAITING)))
         assertFalse(AttentionRules.needsService(watched = true, t = idle))
+    }
+
+    @Test fun `running subagents keep a watched idle session followed, and agent updates never alert`() {
+        val idle = Transcript()
+        val update = m("""{"type":"agent_update","sessionId":"s1","agent":{"id":"a1","kind":"workflow","runId":"wf1","state":"running"}}""", 0)
+        val running = AgentsState().reduce(update)
+        assertTrue(AttentionRules.needsService(watched = true, t = idle, agents = running))
+        assertTrue(AttentionRules.keepOpen(onScreen = false, watched = true, t = idle, agents = running))
+        assertFalse(AttentionRules.needsService(watched = false, t = idle, agents = running))
+        val done = running.reduce(m("""{"type":"agent_update","sessionId":"s1","agent":{"id":"a1","runId":"wf1","state":"done"}}""", 0))
+            .reduce(m("""{"type":"workflow_update","sessionId":"s1","workflow":{"runId":"wf1","status":"completed"}}""", 0))
+        assertFalse(AttentionRules.needsService(watched = true, t = idle, agents = done))
+        assertTrue(AttentionRules.onLive(key, update, idle).isEmpty())
     }
 }

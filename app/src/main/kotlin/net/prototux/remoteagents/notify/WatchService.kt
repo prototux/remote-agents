@@ -9,6 +9,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import net.prototux.remoteagents.RemoteAgentsApp
 
@@ -23,14 +25,15 @@ class WatchService : Service() {
     override fun onCreate() {
         super.onCreate()
         val container = (application as RemoteAgentsApp).container
-        val notification = container.notifier.ongoing(container.hub.working.value)
+        val notification = container.notifier.ongoing(ongoingLines(container.hub.working.value))
         // The specialUse type exists from Android 14; earlier versions take the service without a type.
         if (Build.VERSION.SDK_INT >= 34) startForeground(Notifier.ONGOING_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         else startForeground(Notifier.ONGOING_ID, notification)
         scope.launch {
-            container.hub.working.collect { working ->
-                if (working.isEmpty()) stopSelf()
-                else getSystemService(android.app.NotificationManager::class.java).notify(Notifier.ONGOING_ID, container.notifier.ongoing(working))
+            // Agent updates change the working list up to once a second; re-post only when the text changes.
+            container.hub.working.map { ongoingLines(it) }.distinctUntilChanged().collect { lines ->
+                if (lines.isEmpty()) stopSelf()
+                else getSystemService(android.app.NotificationManager::class.java).notify(Notifier.ONGOING_ID, container.notifier.ongoing(lines))
             }
         }
     }

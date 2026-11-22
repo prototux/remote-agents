@@ -183,7 +183,7 @@ private fun PermissionRow(item: TranscriptItem.Permission, onAnswer: () -> Unit,
     Surface(modifier, color = if (result == null) tokens.attention.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.small) {
         Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Permission", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Permission" + (r.askedBy?.let { " · subagent " + Format.oneLine(it, 40) } ?: ""), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(r.toolName, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 result?.let { DecisionChip(it.decision) }
             }
@@ -214,6 +214,7 @@ private fun DecisionChip(decision: String) {
 private fun AskRow(item: TranscriptItem.Ask, onAnswer: () -> Unit, modifier: Modifier) {
     Surface(modifier, color = if (item.answers == null) tokens.attention.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.small) {
         Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            item.question.askedBy?.let { Text("Subagent · " + Format.oneLine(it, 40), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary) }
             item.question.questions.forEach { q ->
                 Text(q.header ?: "Question", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(q.question, style = MaterialTheme.typography.bodyMedium)

@@ -1,6 +1,7 @@
 package net.prototux.remoteagents.data
 
 import net.prototux.remoteagents.api.AgentMessage
+import net.prototux.remoteagents.api.AgentsState
 import net.prototux.remoteagents.api.Transcript
 import net.prototux.remoteagents.api.TranscriptItem
 
@@ -46,8 +47,11 @@ object AttentionRules {
 
     /**
      * Whether a session's stream stays open: while it is on screen, or while it is watched and working.
-     * The foreground service runs exactly while some session is watched and working.
+     * The foreground service runs exactly while some session is watched and working. Running subagents or
+     * workflow runs count as working (agentd S11): a background workflow runs while the session itself is
+     * idle, and its progress is what the owner follows. agentd ends a stale run after 45 min.
      */
-    fun keepOpen(onScreen: Boolean, watched: Boolean, t: Transcript) = onScreen || (watched && t.busy)
-    fun needsService(watched: Boolean, t: Transcript) = watched && t.busy
+    fun keepOpen(onScreen: Boolean, watched: Boolean, t: Transcript, agents: AgentsState = AgentsState()) =
+        onScreen || needsService(watched, t, agents)
+    fun needsService(watched: Boolean, t: Transcript, agents: AgentsState = AgentsState()) = watched && (t.busy || agents.anyRunning)
 }
