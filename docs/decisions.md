@@ -317,3 +317,26 @@ choices (additive API, decided inside S11):
   (the Even app never sees unknown types). `GET /api/sessions/:id/agents` lists them; `/events` and
   `/messages` with `agentId=` stream one agent's transcript in the usual vocabulary, read-only.
 - `permission_request` / `user_question` from a subagent carry an optional `agentId` (and label when known).
+
+Implemented in agentd (2026-11-22, server only; the app is a separate step). Choices made inside S11:
+- Agent updates are a **separate channel**, not ring-buffer messages: state (latest wins), sent to `agents=1`
+  clients as the full current state on connect and then per change, polled at most once a second per session
+  (which coalesces a busy agent to one update per second). Rejected: buffering them with ids and filtering at
+  write time, which would leave id gaps for the Even app and let one busy workflow evict the session's real
+  messages from its 500-entry buffer. The SSE frame carries an empty `id:` field: by the SSE spec the last event id
+  carries over to events without one, so a reader would otherwise give it the previous message's id.
+- Agent transcripts are hub streams of their own (`<session>/<agent>` key, own ids), dropped with their
+  buffer after the grace period; the tracker keeps a per-agent summary only, capped at 256 agents and 64 runs.
+- State rules: workflow agent done at its journal `result`; Agent tool subagent done at a final `end_turn`
+  answer; failed when its run ended without its result, or when the session has no process and nothing moved
+  for 45 min (longer than a capped 30 min build). The run's summary file overrides counts once it exists; the
+  script file name gives the run's name before.
+- Not verified on real data: `agent_id` in hook input from a subagent and the hosted `can_use_tool` mapping
+  (both from the docs; no capture yet).
+- Checked on the owner's session (agentd built from this tree on 127.0.0.1:3458, read-only): `/agents` lists
+  the Agent tool subagent and the runs agentd-build (8/8 done, 594 tool calls) and agentd-decisions (3/3),
+  per-agent tool counts and tokens matching the run summaries; the running S11 run (no summary yet, named from
+  its script) streamed `agent_update`s for its agent over `agents=1` as it worked. running → done was seen on
+  a scratch copy of agentd-decisions with its last journal result and summary appended live.
+- Known gap: an agent transcript's harness notification records (`[SYSTEM NOTIFICATION …]` user text) parse
+  as a new prompt, so that agent's stream shows an extra result/prompt pair (the main parser does the same).
