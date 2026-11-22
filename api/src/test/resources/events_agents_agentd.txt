@@ -1,0 +1,149 @@
+:ok
+
+id: 1
+data: {"type":"user_prompt","text":"say hi"}
+
+id: 2
+data: {"type":"status","state":"busy","sessionId":"fx-session","provider":"claude"}
+
+id: 3
+data: {"type":"text_delta","text":"Hey! 👋 Ready to work on something? What's up?"}
+
+id: 4
+data: {"type":"notification","title":"Stop hook","message":"Phone says: reply with the single word PHONE."}
+
+id: 5
+data: {"type":"text_delta","text":"\n\nPHONE"}
+
+id: 6
+data: {"type":"result","success":true,"text":"PHONE","sessionId":"fx-session","provider":"claude","inputTokens":46821,"outputTokens":146}
+
+id: 7
+data: {"type":"status","state":"idle","sessionId":"fx-session","provider":"claude"}
+
+id: 8
+data: {"type":"user_prompt","text":"run: touch a.txt"}
+
+id: 9
+data: {"type":"status","state":"busy","sessionId":"fx-session","provider":"claude"}
+
+id: 10
+data: {"type":"tool_start","name":"Bash","toolId":"toolu_017nJkGQ9fB2VYY56bUfrBph"}
+
+id: 11
+data: {"type":"tool_end","name":"Bash","toolId":"toolu_017nJkGQ9fB2VYY56bUfrBph","summary":"touch a.txt","detail":{"input":{"command":"touch a.txt","description":"Create empty file a.txt"},"output":"(Bash completed with no output)"}}
+
+id: 12
+data: {"type":"text_delta","text":"Done. Created `a.txt` in the current directory."}
+
+id: 13
+data: {"type":"result","success":true,"text":"Done. Created `a.txt` in the current directory.","sessionId":"fx-session","provider":"claude","inputTokens":48900,"outputTokens":186}
+
+id: 14
+data: {"type":"status","state":"idle","sessionId":"fx-session","provider":"claude"}
+
+id: 15
+data: {"type":"user_prompt","text":"run this exact bash command: sleep 30; echo done"}
+
+id: 16
+data: {"type":"status","state":"busy","sessionId":"fx-session","provider":"claude"}
+
+id: 17
+data: {"type":"tool_start","name":"Bash","toolId":"toolu_011XohkZM9brrdboT2MoxDUo"}
+
+id: 18
+data: {"type":"tool_end","name":"Bash","toolId":"toolu_011XohkZM9brrdboT2MoxDUo","summary":"sleep 30; echo done","detail":{"input":{"command":"sleep 30; echo done","description":"Sleep for 30 seconds then print done","run_in_background":true},"output":"Command running in background with ID: bmkolrpwe. Output is being written to: /tmp/claude-1000/-work-spike-ws/940dc7b9-5cab-4882-bd8c-48810a788eb4/tasks/bmkolrpwe.output. You will be notified when it completes. To check interim output, use Read on that file path."}}
+
+id: 19
+data: {"type":"text_delta","text":"Running in background — you'll be notified when it completes in ~30 seconds."}
+
+id: 20
+data: {"type":"notification","title":"Background task","message":"bmkolrpwe toolu_011XohkZM9brrdboT2MoxDUo stopped Background shell command didn't finish before the previous session ended No completion record was found for it in the previous session. It may have been stopped (via the UI, Monitor timeout, or agent teardown — these leave no transcript marker), or..."}
+
+id: 21
+data: {"type":"result","success":true,"text":"Running in background — you'll be notified when it completes in ~30 seconds.","sessionId":"fx-session","provider":"claude","inputTokens":49622,"outputTokens":223}
+
+id: 22
+data: {"type":"status","state":"idle","sessionId":"fx-session","provider":"claude"}
+
+id: 23
+data: {"type":"user_prompt","text":"run this exact bash command in the foreground, not in background: sleep 20; echo done"}
+
+id: 24
+data: {"type":"status","state":"busy","sessionId":"fx-session","provider":"claude"}
+
+id: 25
+data: {"type":"tool_start","name":"Bash","toolId":"toolu_01R3xMC5vhnXhc9vW5UovvDg"}
+
+id: 26
+data: {"type":"tool_end","name":"Bash","toolId":"toolu_01R3xMC5vhnXhc9vW5UovvDg","summary":"sleep 20; echo done","detail":{"input":{"command":"sleep 20; echo done","description":"Sleep for 20 seconds then print done","run_in_background":false},"output":"The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed."}}
+
+id: 27
+data: {"type":"result","success":false,"text":"Interrupted by user","sessionId":"fx-session","provider":"claude","inputTokens":25614,"outputTokens":160}
+
+id: 28
+data: {"type":"status","state":"idle","sessionId":"fx-session","provider":"claude"}
+
+id: 29
+data: {"type":"user_prompt","text":"say ok"}
+
+id: 30
+data: {"type":"status","state":"busy","sessionId":"fx-session","provider":"claude"}
+
+id: 31
+data: {"type":"text_delta","text":"ok"}
+
+id: 32
+data: {"type":"result","success":true,"text":"ok","sessionId":"fx-session","provider":"claude","inputTokens":26529,"outputTokens":35}
+
+id: 33
+data: {"type":"status","state":"idle","sessionId":"fx-session","provider":"claude"}
+
+id: 34
+data: {"type":"user_prompt","text":"Use the AskUserQuestion tool to ask me one question: tea or coffee? Then tell me my answer in one word."}
+
+id: 35
+data: {"type":"status","state":"busy","sessionId":"fx-session","provider":"claude"}
+
+id: 36
+data: {"type":"tool_start","name":"ToolSearch","toolId":"toolu_01Y9A9nkfVnDz8JUcktDSzfH"}
+
+id: 37
+data: {"type":"tool_end","name":"ToolSearch","toolId":"toolu_01Y9A9nkfVnDz8JUcktDSzfH","summary":"select:AskUserQuestion","detail":{"input":{"max_results":1,"query":"select:AskUserQuestion"},"output":""}}
+
+id: 38
+data: {"type":"tool_start","name":"AskUserQuestion","toolId":"toolu_01XWbhgTXeiTd5iM7iWYtJAS"}
+
+id: 39
+data: {"type":"tool_end","name":"AskUserQuestion","toolId":"toolu_01XWbhgTXeiTd5iM7iWYtJAS","summary":"Tea or coffee?","detail":{"input":{"questions":[{"header":"Beverage","multiSelect":false,"options":[{"description":"A warm tea beverage","label":"Tea"},{"description":"A warm coffee beverage","label":"Coffee"}],"question":"Tea or coffee?"}]},"output":"Your questions have been answered: \"Tea or coffee?\"=\"Tea\". You can now continue with these answers in mind."}}
+
+id: 40
+data: {"type":"text_delta","text":"Tea."}
+
+id: 41
+data: {"type":"result","success":true,"text":"Tea.","sessionId":"fx-session","provider":"claude","inputTokens":82891,"outputTokens":338}
+
+id: 42
+data: {"type":"status","state":"idle","sessionId":"fx-session","provider":"claude"}
+
+id:
+data: {"type":"workflow_update","sessionId":"fx-session","workflow":{"runId":"wf_fixture-live","name":"fixture-live","phases":[],"currentPhase":"Review","agentsDone":1,"agentsFailed":0,"agentsTotal":2,"status":"running","startedAt":"2026-11-22T16:04:57.724Z"}}
+
+id:
+data: {"type":"workflow_update","sessionId":"fx-session","workflow":{"runId":"wf_fixture-done","name":"fixture-done","summary":"Anonymised workflow that finished","phases":[{"title":"Build","detail":"anonymised"},{"title":"Review","detail":"anonymised"}],"currentPhase":"Review","agentsDone":2,"agentsFailed":0,"agentsTotal":2,"status":"completed","startedAt":"2026-11-22T18:51:31.580Z","endedAt":"2026-11-22T19:25:17.436Z","durationMs":2025856,"tokens":3000,"toolCalls":81}}
+
+id:
+data: {"type":"agent_update","sessionId":"fx-session","agent":{"id":"a0000000000000001","kind":"subagent","label":"Look up hooks","description":"Look up hooks","agentType":"general-purpose","model":"claude-sonnet-5","state":"done","startedAt":"2026-11-22T15:17:11.426Z","endedAt":"2026-11-22T15:20:14.431Z","updatedAt":"2026-11-22T15:20:14.431Z","lastAction":"Anonymised text 12.","toolCount":5,"tokens":95840,"toolUseId":"toolu_fixture000000000000001"}}
+
+id:
+data: {"type":"agent_update","sessionId":"fx-session","agent":{"id":"a0000000000000005","kind":"workflow","runId":"wf_fixture-live","label":"live review","description":"live review","agentType":"workflow-subagent","phase":"Review","model":"claude-opus-5-5","state":"running","startedAt":"2026-11-22T16:04:57.724Z","updatedAt":"2026-11-22T16:09:27.330Z","lastAction":"Bash: echo anonymised-59","toolCount":15,"tokens":111222}}
+
+id:
+data: {"type":"agent_update","sessionId":"fx-session","agent":{"id":"a0000000000000002","kind":"workflow","runId":"wf_fixture-done","label":"build step","description":"build step","agentType":"workflow-subagent","phase":"Build","model":"claude-opus-5-5","state":"done","startedAt":"2026-11-22T18:51:31.636Z","endedAt":"2026-11-22T19:06:31.635Z","updatedAt":"2026-11-22T19:06:50.571Z","lastAction":"Anonymised summary","toolCount":40,"tokens":1000}}
+
+id:
+data: {"type":"agent_update","sessionId":"fx-session","agent":{"id":"a0000000000000003","kind":"workflow","runId":"wf_fixture-done","label":"review step","description":"review step","agentType":"workflow-subagent","phase":"Review","model":"claude-opus-5-5","state":"done","startedAt":"2026-11-22T19:06:52.804Z","endedAt":"2026-11-22T19:23:11.635Z","updatedAt":"2026-11-22T19:13:03.175Z","lastAction":"Anonymised summary","toolCount":41,"tokens":2000}}
+
+id:
+data: {"type":"agent_update","sessionId":"fx-session","agent":{"id":"a0000000000000004","kind":"workflow","runId":"wf_fixture-live","label":"live build","description":"live build","agentType":"workflow-subagent","phase":"Build","model":"claude-opus-5-5","state":"done","startedAt":"2026-11-22T19:13:04.959Z","endedAt":"2026-11-22T19:25:15.173Z","updatedAt":"2026-11-22T19:25:15.173Z","lastAction":"StructuredOutput","toolCount":2,"tokens":136272}}
+

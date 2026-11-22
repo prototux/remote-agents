@@ -101,6 +101,8 @@ data class Transcript(
                 totalCostUsd = t.totalCostUsd + (m.costUsd ?: 0.0), turns = t.turns + 1,
             )
             is AgentMessage.Error -> t.copy(items = t.items + TranscriptItem.Failure(m.message, key = "e${m.id ?: t.items.size}"))
+            // Agent state is not part of the conversation (see AgentsState).
+            is AgentMessage.AgentUpdate, is AgentMessage.WorkflowUpdate -> t
             is AgentMessage.Unsupported -> t.copy(items = t.items + TranscriptItem.Unknown(m.raw, key = "u${m.id ?: t.items.size}"))
         }
     }

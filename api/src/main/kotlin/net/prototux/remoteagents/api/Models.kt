@@ -26,8 +26,12 @@ internal data class SessionsResponse(val sessions: List<SessionSummary> = emptyL
 @Serializable
 data class Account(val email: String? = null, val organization: String? = null, val subscriptionType: String? = null)
 
+/** `/info` `server` (agentd): which server answers. even-terminal sends none. */
 @Serializable
-data class InfoExtra(val expose: String? = null)
+data class ServerIdent(val name: String? = null, val version: String? = null)
+
+@Serializable
+data class InfoExtra(val expose: String? = null, val server: ServerIdent? = null)
 
 @Serializable
 data class ServerInfo(
@@ -36,7 +40,14 @@ data class ServerInfo(
     val version: String? = null,
     val provider: String? = null,
     val extra: InfoExtra? = null,
-)
+    val server: ServerIdent? = null,
+) {
+    /**
+     * agentd puts `server` at the top level of `/info`; `extra.server` is read too, so either place counts.
+     * Only agentd gets `agents=1`, `/agents` and `agentId=`; even-terminal never does.
+     */
+    val isAgentd: Boolean get() = (server ?: extra?.server)?.name == "agentd"
+}
 
 @Serializable
 data class UpdateCheck(
@@ -65,8 +76,11 @@ data class HistoryEntry(val role: String, val text: String = "")
 @Serializable
 internal data class HistoryResponse(val history: List<HistoryEntry> = emptyList())
 
-/** `/messages` answer: the ring buffer after a given id, plus the session state. */
-data class MessagesPage(val messages: List<AgentMessage>, val state: String?)
+/**
+ * `/messages` answer: the ring buffer after a given id, plus the session state. [agentId] is agentd's echo
+ * of an agent transcript request; a server that does not echo it ignored `agentId` and sent the session's.
+ */
+data class MessagesPage(val messages: List<AgentMessage>, val state: String?, val agentId: String? = null)
 
 /** Session states as `/status` and `/sessions` report them. */
 object SessionState {

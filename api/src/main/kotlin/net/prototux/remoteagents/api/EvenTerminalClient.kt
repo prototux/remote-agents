@@ -37,11 +37,16 @@ class EvenTerminalClient(val endpoint: Endpoint, base: OkHttpClient = OkHttpClie
     suspend fun status(sessionId: String, provider: String? = null): StatusResponse =
         get("status", "sessionId" to sessionId, "provider" to provider)
 
-    suspend fun messages(sessionId: String, after: Long = 0, provider: String? = null): MessagesPage {
-        val json: JsonObject = get("messages", "sessionId" to sessionId, "after" to after.toString(), "provider" to provider)
+    /** [agentId] (agentd S11) pages that subagent's transcript instead, with its own ids. */
+    suspend fun messages(sessionId: String, after: Long = 0, provider: String? = null, agentId: String? = null): MessagesPage {
+        val json: JsonObject = get("messages", "sessionId" to sessionId, "after" to after.toString(), "provider" to provider, "agentId" to agentId)
         val list = (json["messages"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonObject)?.let { o -> AgentMessage.parse(o) } }
-        return MessagesPage(list, json.str("state"))
+        return MessagesPage(list, json.str("state"), json.str("agentId"))
     }
+
+    /** A session's subagents and workflow runs (agentd S11; even-terminal answers 404). */
+    suspend fun agents(sessionId: String, provider: String? = null): AgentsList =
+        get(listOf("sessions", sessionId, "agents"), "provider" to provider)
 
     suspend fun history(sessionId: String, limit: Int = 10, provider: String? = null): List<HistoryEntry> {
         val r: HistoryResponse = get(listOf("sessions", sessionId, "history"), "limit" to limit.toString(), "provider" to provider)

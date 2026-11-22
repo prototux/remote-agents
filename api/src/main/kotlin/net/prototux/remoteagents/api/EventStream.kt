@@ -69,12 +69,18 @@ internal fun backoffMs(attempt: Int): Long = (1000L shl attempt.coerceAtMost(5))
  * The live stream of one session (`GET /events?needReplay=true`), reconnecting forever with backoff until
  * the collector cancels or the token is refused. Replayed messages already in [known] (id to
  * [AgentMessage.fingerprint], usually [Transcript.knownIds]) or delivered earlier on this flow are dropped.
+ *
+ * agentd only (S11): [agents] adds `agent_update` / `workflow_update` (id-less state, the full set again on
+ * each connect); [agentId] streams that subagent's transcript instead of the session's. Never pass either
+ * to even-terminal: check [ServerInfo.isAgentd] first.
  */
 fun EvenTerminalClient.events(
     sessionId: String,
     provider: String? = null,
     known: Map<Long, Int> = emptyMap(),
     backoff: (attempt: Int) -> Long = ::backoffMs,
+    agents: Boolean = false,
+    agentId: String? = null,
 ): Flow<StreamEvent> = flow {
     val dedup = Deduplicator(known)
     var attempt = 0
@@ -83,7 +89,7 @@ fun EvenTerminalClient.events(
         var authFailed = false
         var failure: Throwable? = null
         var delivered = false
-        connectOnce(sessionId, provider).collect { item ->
+        connectOnce(sessionId, provider, agents, agentId).collect { item ->
             when (item) {
                 is RawSse.Open -> { emit(StreamEvent.Connected(connectedOnce)); connectedOnce = true }
                 is RawSse.Data -> {
@@ -116,9 +122,10 @@ private sealed interface RawSse {
 }
 
 /** One SSE connection; completes when the connection ends for any reason. */
-private fun EvenTerminalClient.connectOnce(sessionId: String, provider: String?): Flow<RawSse> = callbackFlow {
+private fun EvenTerminalClient.connectOnce(sessionId: String, provider: String?, agents: Boolean, agentId: String?): Flow<RawSse> = callbackFlow {
     val request = Request.Builder()
-        .url(url(listOf("events"), "sessionId" to sessionId, "needReplay" to "true", "provider" to provider))
+        .url(url(listOf("events"), "sessionId" to sessionId, "needReplay" to "true", "provider" to provider,
+            "agents" to "1".takeIf { agents }, "agentId" to agentId))
         .header("Accept", "text/event-stream")
         .build()
     val listener = object : EventSourceListener() {

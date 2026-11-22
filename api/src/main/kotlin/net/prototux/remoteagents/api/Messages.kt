@@ -1,5 +1,6 @@
 package net.prototux.remoteagents.api
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -50,13 +51,26 @@ sealed interface AgentMessage {
         override val id: Long?, override val raw: JsonObject,
         val toolName: String, val description: String?, val detail: String?, val toolUseId: String?,
         val options: List<PermissionOption>,
-    ) : AgentMessage
+        /** agentd (S11): the subagent that asks, null for the session itself. */
+        val agentId: String? = null,
+        val agentLabel: String? = null,
+    ) : AgentMessage {
+        /** Who asks, when it is a subagent: its label, else its id. */
+        val askedBy: String? get() = agentLabel?.ifBlank { null } ?: agentId
+    }
     /** [toolUseId] (agentd) names the request it resolves; [decision] `expired` means it ended unanswered. */
     data class PermissionResult(
         override val id: Long?, override val raw: JsonObject, val toolName: String, val summary: String?, val decision: String,
         val toolUseId: String? = null,
     ) : AgentMessage
-    data class UserQuestion(override val id: Long?, override val raw: JsonObject, val questions: List<Question>, val toolUseId: String?) : AgentMessage
+    data class UserQuestion(
+        override val id: Long?, override val raw: JsonObject, val questions: List<Question>, val toolUseId: String?,
+        /** agentd (S11): the subagent that asks, null for the session itself. */
+        val agentId: String? = null,
+        val agentLabel: String? = null,
+    ) : AgentMessage {
+        val askedBy: String? get() = agentLabel?.ifBlank { null } ?: agentId
+    }
     /** [toolUseId] (agentd) names the question it resolves; no answers means it ended unanswered. */
     data class QuestionAnswer(override val id: Long?, override val raw: JsonObject, val answers: Map<String, String>, val toolUseId: String? = null) : AgentMessage
     data class Notification(override val id: Long?, override val raw: JsonObject, val title: String?, val message: String) : AgentMessage
@@ -67,6 +81,13 @@ sealed interface AgentMessage {
         val durationMs: Long?, val inputTokens: Long?, val outputTokens: Long?,
     ) : AgentMessage
     data class Error(override val id: Long?, override val raw: JsonObject, val message: String) : AgentMessage
+    /**
+     * agentd (S11, only with `agents=1`): a subagent's new state. State, not a session message: it has no id,
+     * is never replayed, and [Transcript] ignores it; [AgentsState] folds it.
+     */
+    data class AgentUpdate(override val id: Long?, override val raw: JsonObject, val sessionId: String?, val agent: AgentSummary) : AgentMessage
+    /** agentd (S11, only with `agents=1`): a workflow run's new state, like [AgentUpdate]. */
+    data class WorkflowUpdate(override val id: Long?, override val raw: JsonObject, val sessionId: String?, val workflow: WorkflowRun) : AgentMessage
     /** A type this client does not know; shown as "unsupported event" with its raw JSON. */
     data class Unsupported(override val id: Long?, override val raw: JsonObject) : AgentMessage
 
@@ -94,12 +115,14 @@ sealed interface AgentMessage {
                     (json["options"] as? JsonArray).orEmpty().mapNotNull { o ->
                         (o as? JsonObject)?.let { PermissionOption(it.str("key") ?: return@let null, it.str("text") ?: it.str("key")!!) }
                     },
+                    json.str("agentId")?.ifBlank { null }, json.str("agentLabel")?.ifBlank { null },
                 )
                 "permission_result" -> PermissionResult(id, json, json.str("toolName") ?: "tool", json.str("summary"), json.str("decision") ?: "", json.str("toolUseId"))
                 "user_question" -> UserQuestion(
                     id, json,
                     (json["questions"] as? JsonArray).orEmpty().mapNotNull { q -> (q as? JsonObject)?.let(Question::parse) },
                     json.str("toolUseId"),
+                    json.str("agentId")?.ifBlank { null }, json.str("agentLabel")?.ifBlank { null },
                 )
                 "question_answer" -> QuestionAnswer(
                     id, json, (json["answers"] as? JsonObject).orEmpty().mapValues { it.value.asText() }, json.str("toolUseId"),
@@ -111,9 +134,15 @@ sealed interface AgentMessage {
                     json.long("turns")?.toInt(), json.long("durationMs"), json.long("inputTokens"), json.long("outputTokens"),
                 )
                 "error" -> Error(id, json, json.str("message") ?: "Unknown error")
+                // A malformed state update is shown as unsupported rather than dropped or thrown.
+                "agent_update" -> decode(json["agent"], AgentSummary.serializer())?.let { AgentUpdate(id, json, json.str("sessionId"), it) } ?: Unsupported(id, json)
+                "workflow_update" -> decode(json["workflow"], WorkflowRun.serializer())?.let { WorkflowUpdate(id, json, json.str("sessionId"), it) } ?: Unsupported(id, json)
                 else -> Unsupported(id, json)
             }
         }
+
+        private fun <T> decode(e: JsonElement?, serializer: KSerializer<T>): T? =
+            (e as? JsonObject)?.let { runCatching { ApiJson.decodeFromJsonElement(serializer, it) }.getOrNull() }
 
         /** Parses a raw SSE `data:` payload; anything that is not a JSON object becomes [Unsupported]. */
         fun parse(data: String, sseId: Long? = null): AgentMessage {
