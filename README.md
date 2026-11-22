@@ -1,5 +1,7 @@
 # Remote Agents
 
+[![ci](https://github.com/prototux/remote-agents/actions/workflows/ci.yml/badge.svg)](https://github.com/prototux/remote-agents/actions/workflows/ci.yml)
+
 An Android app to follow and drive the coding agents (Claude Code, Codex) running on your own machines,
 privately: through your VPN, or a public server behind an HTTPS proxy with a pinned key. It is a client of
 [even-terminal](https://www.npmjs.com/package/@evenrealities/even-terminal)'s HTTP + SSE API (built against
@@ -31,6 +33,18 @@ GPL-3.0-or-later. Decisions and their reasons: [docs/decisions.md](docs/decision
 
 Not possible through even-terminal's API (would need a sidecar or another server): switching model or
 permission mode, plan mode, browsing folders, diffs beyond tool inputs, images, full transcripts.
+
+## Install
+
+Download `remote-agents-<version>.apk` from the [releases](https://github.com/prototux/remote-agents/releases)
+(check it against `SHA256SUMS`) and install it (`adb install -r remote-agents-<version>.apk`, or open it on the
+phone). Release APKs are signed with key SHA-256
+`99:F2:E2:F1:66:B8:FD:6E:57:28:BD:2A:48:EC:08:25:C9:71:0E:4D:D1:8A:81:90:67:D7:55:3A:6B:D4:8D:85`.
+
+The server side is either even-terminal, or [agentd](https://github.com/prototux/agentd) (recommended: it also
+follows and drives sessions already running in a terminal, and shows subagents and workflows).
+
+The pure-Kotlin client in `api/` is published to GitHub Packages as `net.prototux.remoteagents:remote-agents-api`.
 
 ## Workstation setup
 

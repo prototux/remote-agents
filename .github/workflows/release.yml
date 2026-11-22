@@ -1,0 +1,47 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+  packages: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      # The runner image ships the Android SDK and sdkmanager; add the platform this app compiles against.
+      - run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-37' 'build-tools;36.0.0' > /dev/null
+      - uses: gradle/actions/setup-gradle@v4
+      - run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+      - name: Signed release APK
+        env:
+          RA_KEYSTORE_B64: ${{ secrets.RA_KEYSTORE_B64 }}
+          RA_KEYSTORE_PASSWORD: ${{ secrets.RA_KEYSTORE_PASSWORD }}
+          RA_KEY_ALIAS: ${{ secrets.RA_KEY_ALIAS }}
+          RA_KEY_PASSWORD: ${{ secrets.RA_KEY_PASSWORD }}
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          export RA_KEYSTORE="$RUNNER_TEMP/release.jks"
+          echo "$RA_KEYSTORE_B64" | base64 -d > "$RA_KEYSTORE"
+          ./gradlew --no-configuration-cache -PappVersion="$V" -PappVersionCode="$GITHUB_RUN_NUMBER" \
+            :api:test :app:testDebugUnitTest :app:assembleRelease
+          rm -f "$RA_KEYSTORE"
+          APK=app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME"/build-tools/36.0.0/apksigner verify --print-certs "$APK" | grep -i 'SHA-256'
+          mkdir -p dist && cp "$APK" "dist/remote-agents-$V.apk"
+          (cd dist && sha256sum *.apk > SHA256SUMS)
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pre=""; case "$GITHUB_REF_NAME" in *-*) pre="--prerelease";; esac
+          gh release create "$GITHUB_REF_NAME" dist/* --title "Remote Agents $GITHUB_REF_NAME" --generate-notes $pre
+      - name: api library to GitHub Packages
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./gradlew --no-configuration-cache -PappVersion="${GITHUB_REF_NAME#v}" :api:publishApiPublicationToGitHubPackagesRepository
