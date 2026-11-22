@@ -87,4 +87,23 @@ class EventStreamTest {
         val events = withTimeout(5_000) { bad.events("s1", backoff = { 20L }).toList() }
         assertEquals(StreamEvent.AuthFailed, events.last())
     }
+
+    // A replay larger than the flow's buffer, read by a slow collector: every message arrives, in order. Found
+    // on a real agentd session (437 messages then 17 agent states): the reader used to drop what did not fit.
+    @Test fun `a large replay is never dropped by a slow collector`() = runBlocking {
+        fake.addSession("big")
+        repeat(600) { fake.emit("big", """{"type":"text_delta","text":"chunk $it "}""") }
+        val ids = mutableListOf<Long?>()
+        val events = withTimeout(15_000) {
+            val out = mutableListOf<StreamEvent>()
+            client.events("big", backoff = { 20L }).takeWhile { ev ->
+                out += ev
+                if (ev is StreamEvent.Message) { if (ids.isEmpty()) kotlinx.coroutines.delay(500); ids += ev.message.id }
+                ev !is StreamEvent.Reset && ids.size < 600
+            }.toList()
+            out
+        }
+        assertTrue(events.none { it is StreamEvent.Reset })
+        assertEquals((1L..600L).toList(), ids)
+    }
 }

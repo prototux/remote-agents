@@ -1,6 +1,7 @@
 package net.prototux.remoteagents.api
 
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -121,7 +122,11 @@ private sealed interface RawSse {
     data class Failed(val error: Throwable?) : RawSse
 }
 
-/** One SSE connection; completes when the connection ends for any reason. */
+/**
+ * One SSE connection; completes when the connection ends for any reason. OkHttp's reader thread blocks
+ * while the collector is behind ([trySendBlocking]): a plain `trySend` drops whatever does not fit the
+ * channel's 64-item buffer, which lost most of a 437-message replay and the agent states after it.
+ */
 private fun EvenTerminalClient.connectOnce(sessionId: String, provider: String?, agents: Boolean, agentId: String?): Flow<RawSse> = callbackFlow {
     val request = Request.Builder()
         .url(url(listOf("events"), "sessionId" to sessionId, "needReplay" to "true", "provider" to provider,
@@ -129,15 +134,15 @@ private fun EvenTerminalClient.connectOnce(sessionId: String, provider: String?,
         .header("Accept", "text/event-stream")
         .build()
     val listener = object : EventSourceListener() {
-        override fun onOpen(eventSource: EventSource, response: Response) { trySend(RawSse.Open) }
-        override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) { trySend(RawSse.Data(id, data)) }
+        override fun onOpen(eventSource: EventSource, response: Response) { channel.trySendBlocking(RawSse.Open) }
+        override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) { channel.trySendBlocking(RawSse.Data(id, data)) }
         override fun onClosed(eventSource: EventSource) { channel.close() }
         override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
             val error = when {
                 response != null && !response.isSuccessful -> ApiException.from(response.code, runCatching { response.body.string() }.getOrNull())
                 else -> t
             }
-            trySend(RawSse.Failed(error))
+            channel.trySendBlocking(RawSse.Failed(error))
             channel.close()
         }
     }
