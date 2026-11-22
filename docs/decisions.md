@@ -118,3 +118,67 @@ injection yet. Built on the spike findings (`server-protocols.md`), which correc
   config `expose` mode serves loopback only (no tunnels). Loopback is always served.
 - **Not in this step**: hooks, hosted processes, inbox/tmux/Stop-hook delivery, TLS flags, agentd's own config
   file, tmux pane detection.
+
+## agentd driving (step 2), implementation choices (2026-11-22)
+
+Hosting, hooks and terminal delivery, on the formats verified in `server-protocols.md`. Choices marked
+**(owner)** settle an open spike question provisionally and are easy to change.
+
+- **Packages**: `internal/approval` (pending permissions and questions, shared by hosted processes and the hook
+  receiver; the design had them in `hooks`), `internal/hooks` (receiver, relay, settings installer),
+  `internal/inject` (tmux, inbox, Stop-hook queue), `internal/ids`, `internal/testutil/fake{claude,pi}`
+  (scripted agents; a test binary re-executes itself as one, so no model runs in tests).
+- **Hook transport (owner)**: every hook is a command hook, `'<agentd>' hooks relay --port N --timeout S`.
+  SessionStart cannot be an HTTP hook, and the relay reads the secret from `~/.config/agentd/hook-secret`
+  (0600, created by `hooks install` or `serve`; a file others can read is refused), so the secret is not in the
+  0644 settings.json and terminals need no environment variable. The relay always exits 0 (fail open). Our
+  entries are recognised by a command hook running `<…agentd…> hooks relay`; install replaces them
+  (idempotent), uninstall removes only them, the file keeps its key order and indentation and is backed up to
+  `settings.json.agentd-backup-<UTC time>` before any change. The settings path defaults to
+  `~/.claude/settings.json` and `--settings` overrides it. Receiver: `/hooks/claude` on the API port, loopback
+  peers with the secret only, outside the token check.
+- **Terminal permissions**: PermissionRequest waits for the phone up to `--hook-wait` (120 s; hook timeout
+  wait + 15 s) while the terminal dialog stays usable; no phone answer, or Claude Code dropping the call → `{}`
+  and a notification. Sessions agentd hosts get `{}` at once (their stdio host asks), so nothing is asked twice.
+  `allowAlways` is offered only when Claude sent `permission_suggestions`, which go back as
+  `updatedPermissions` (documented, not verified live). **(owner)** AskUserQuestion in hooked terminal sessions is
+  answered from the phone (`updatedInput.answers`), as the spike verified. `canApprove` is true for a terminal
+  session once it has called a hook (until SessionEnd).
+- **Hosted Claude**: `claude -p --input-format stream-json --output-format stream-json --include-partial-messages
+  --verbose --permission-prompt-tool stdio` plus `--session-id <new uuid>` / `--resume <id>` /
+  `--resume <id> --fork-session`, `--model` when `/prompt` has `model`. One turn at a time: agentd queues later
+  prompts (notification "Queued") and sends the next on `result`; interrupt is the `interrupt` control request
+  and also drops the queue and cancels pending approvals. Hosted approvals have no timeout (the phone is the
+  only UI). `costUsd` is the turn's increase of the cumulative `total_cost_usd`; `num_turns:0` task-notification
+  results (stale background tasks after `--resume`) are ignored. The process runs in its own process group with
+  the parent session's `CLAUDE*` session variables removed (agentd may be started from a Claude Code shell).
+  An idle process is ended after `--hosted-idle` (30 min; 0 = never) by closing stdin, which also ends its
+  background tasks; the next prompt resumes it. Shutdown closes stdin, then SIGTERMs the group after 5 s.
+- **Ids**: a new session gets a random UUID; a fork's id comes from `system/init` (up to 60 s) and `/prompt`
+  returns it. `force:true` on a terminal session hosts it anyway (two processes on one transcript, logged as a
+  warning); `fork:true` never touches the original.
+- **No double display**: while a session is hosted its process output is the source and the transcript
+  follower only advances its offset; when the process ends the follower catches up silently, and a follower
+  created later for a session hosted in this run skips the backlog (the buffer already has it). Resuming loads
+  the history into the buffer first.
+- **Terminal delivery** (`drive`): tmux pane (found by walking the agent's parent pids to a `pane_pid`, any
+  pane of the user's default tmux server), else the inbox socket (registry `messagingSocketPath` + peer token
+  from `<pid>.<hash>.key`), else the Stop-hook queue (only while a turn runs, since an idle session's Stop hook
+  does not fire), else `none` → 409 `session_live` as before. **(owner)** The inbox is used even though Claude
+  sees the text as another session's message; tmux comes first because it delivers the user's words. A client
+  can pick a method with the `drive` body field (agentd extension). tmux refuses while the session is
+  `awaiting` (keys would answer the dialog); one line goes as `send-keys -l` + Enter, several lines as a
+  bracketed paste (`paste-buffer -p`). Interrupt of a terminal session: Escape in its pane, else 409.
+- **Errors**: 400 for "No permission pending", "No question pending", a decision not offered, a bad `cwd`; 409
+  `session_live` for a method a live session does not offer.
+- **pi**: `pi --mode rpc` with `--session-id <uuid>` (new), `--session <file>` (resume), `--fork <file>
+  --session-id <uuid>` (fork); one prompt at a time, `abort`, `agent_settled` ends the turn (aborted →
+  "Interrupted by user"). Extension dialogs go to the phone (confirm → permission, select/input/editor →
+  question) within the dialog's timeout. **(owner)** agentd ships no approval extension, so hosted pi runs tools
+  without asking, as pi does in a terminal.
+- **Wrappers**: `agentd claude|pi [args]` creates a detached tmux session `agentd-<program>-<6 hex>` in the
+  current directory running the agent directly (arguments unchanged, verified) and `exec`s `tmux attach`; inside
+  tmux it just execs the agent. If a tmux server already runs, the session gets that server's environment, not
+  the calling shell's (tmux behaviour).
+- **Not in this step**: TLS flags, agentd's own config file, a pi approval extension, answering terminal
+  questions by keys, Codex.
