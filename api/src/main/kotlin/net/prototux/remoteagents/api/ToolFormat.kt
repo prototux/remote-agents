@@ -100,16 +100,20 @@ object SlashCommands {
     )
 
     /**
-     * pi, opencode and Hermes get none: agentd's protocol research (its docs/protocols) records no commands for prompts
-     * sent the way agentd sends them, and a command the agent does not run would reach the model as plain text.
+     * The commands for a session whose prompts reach it the way [drive] says (agentd's `drive`; null on
+     * even-terminal). pi, opencode and Hermes get none: agentd's protocol research (its docs/protocols) records no
+     * commands for prompts sent the way agentd sends them, and a command the agent does not run would reach the model
+     * as plain text. Codex's commands exist only in its TUI: they are offered when the text is typed into one
+     * (tmux) or on even-terminal, not when agentd hosts the thread through `codex app-server` (or resumes an ended
+     * one there), which passes `/compact` to the model as text.
      */
-    fun forProvider(provider: String?) = when (Providers.canonical(provider)) {
+    fun forProvider(provider: String?, drive: String?) = when (Providers.canonical(provider)) {
         Providers.CLAUDE -> CLAUDE
-        Providers.CODEX -> CODEX
+        Providers.CODEX -> if (drive == null || drive == Drive.TMUX) CODEX else emptyList()
         else -> emptyList()
     }
 
-    fun matching(provider: String?, typed: String): List<SlashCommand> =
+    fun matching(provider: String?, drive: String?, typed: String): List<SlashCommand> =
         if (!typed.startsWith("/") || typed.contains(' ') || typed.contains('\n')) emptyList()
-        else forProvider(provider).filter { it.name.startsWith(typed) }
+        else forProvider(provider, drive).filter { it.name.startsWith(typed) }
 }

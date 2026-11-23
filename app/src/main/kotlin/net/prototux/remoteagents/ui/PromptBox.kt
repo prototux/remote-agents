@@ -48,6 +48,7 @@ fun PromptBox(
     text: String,
     onText: (String) -> Unit,
     provider: String?,
+    drive: String?,
     busy: Boolean,
     sending: Boolean,
     showQuickReplies: Boolean,
@@ -58,7 +59,7 @@ fun PromptBox(
     disabledHint: String? = null,
 ) {
     val enabled = disabledHint == null
-    val suggestions = remember(text, provider) { SlashCommands.matching(provider, text.trim()) }
+    val suggestions = remember(text, provider, drive) { SlashCommands.matching(provider, drive, text.trim()) }
     var historyOpen by remember { mutableStateOf(false) }
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 2.dp) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {

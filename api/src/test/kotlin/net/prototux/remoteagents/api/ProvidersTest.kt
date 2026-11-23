@@ -77,9 +77,20 @@ class ProvidersTest {
     }
 
     @Test fun `slash commands only where documented`() {
-        assertTrue(SlashCommands.forProvider("claude-sync").any { it.name == "/compact" })
-        assertTrue(SlashCommands.forProvider(null).isNotEmpty())
-        for (p in listOf("pi", "opencode", "hermes", "zed")) assertEquals(p, emptyList<SlashCommand>(), SlashCommands.forProvider(p))
-        assertEquals(emptyList<SlashCommand>(), SlashCommands.matching("hermes", "/"))
+        assertTrue(SlashCommands.forProvider("claude-sync", null).any { it.name == "/compact" })
+        assertTrue(SlashCommands.forProvider(null, null).isNotEmpty())
+        for (p in listOf("pi", "opencode", "hermes", "zed")) assertEquals(p, emptyList<SlashCommand>(), SlashCommands.forProvider(p, null))
+        assertEquals(emptyList<SlashCommand>(), SlashCommands.matching("hermes", Drive.TMUX, "/"))
+    }
+
+    @Test fun `codex commands only where its TUI reads them`() {
+        // Typed into a codex TUI (tmux), or on even-terminal (no drive): the TUI runs them.
+        assertTrue(SlashCommands.forProvider("codex", Drive.TMUX).any { it.name == "/compact" })
+        assertTrue(SlashCommands.forProvider("codex", null).any { it.name == "/compact" })
+        // agentd's own codex app-server (hosted, or an ended thread it would resume) passes them to the model as text.
+        for (d in listOf(Drive.HOSTED, Drive.NONE)) assertEquals(d, emptyList<SlashCommand>(), SlashCommands.forProvider("codex", d))
+        assertEquals(emptyList<SlashCommand>(), SlashCommands.matching("codex", Drive.HOSTED, "/comp"))
+        // Claude keeps its list whatever the drive.
+        assertTrue(SlashCommands.forProvider("claude", Drive.HOSTED).isNotEmpty())
     }
 }

@@ -404,8 +404,10 @@ owner decision 2026-11-23) and lists what it knows in `/info` `server.providers`
   an unknown name shows as itself. The session-list filters are All, Claude Code, Codex, then any other provider the
   server has installed or a session carries; sessions match by canonical name (claude-sync and no provider = Claude).
 - **Slash commands**: none for pi, opencode and Hermes. agentd's protocol research records none for prompts sent the way
-  agentd sends them, and a command the agent does not run would reach the model as plain text. Claude's and Codex's
-  lists are unchanged (Codex's was written for even-terminal; whether agentd's experimental Codex runs them is not
-  known).
+  agentd sends them, and a command the agent does not run would reach the model as plain text. Claude's list is unchanged.
+  Codex's is offered only where a Codex TUI reads the text: `drive` tmux, or even-terminal (no `drive`). Codex runs
+  slash commands in its TUI only (codex-rs `tui/src/slash_command.rs`; nothing in `app-server` or `core`), so on a
+  thread agentd hosts through `codex app-server` (`drive` hosted, or an ended thread it would resume) `/compact`
+  would reach the model as text (changed 2026-11-23 after review).
 - **Not changed**: the server edit screen's default-provider choice (still Claude Code or Codex).
 - Not verified: the UI on a device (no emulator by rule); any session of the three experimental providers.

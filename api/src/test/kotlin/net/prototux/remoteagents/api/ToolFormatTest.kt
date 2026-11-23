@@ -27,9 +27,9 @@ class ToolFormatTest {
     }
 
     @Test fun `slash command matching`() {
-        assertEquals(listOf("/compact"), SlashCommands.matching("claude", "/comp").map { it.name })
-        assertEquals(emptyList<SlashCommand>(), SlashCommands.matching("claude", "/compact now"))
-        assertEquals(emptyList<SlashCommand>(), SlashCommands.matching("claude", "hello"))
-        assertEquals(true, SlashCommands.matching("codex", "/").any { it.name == "/diff" })
+        assertEquals(listOf("/compact"), SlashCommands.matching("claude", null, "/comp").map { it.name })
+        assertEquals(emptyList<SlashCommand>(), SlashCommands.matching("claude", null, "/compact now"))
+        assertEquals(emptyList<SlashCommand>(), SlashCommands.matching("claude", null, "hello"))
+        assertEquals(true, SlashCommands.matching("codex", null, "/").any { it.name == "/diff" })
     }
 }

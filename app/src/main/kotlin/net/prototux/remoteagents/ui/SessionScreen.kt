@@ -222,6 +222,7 @@ fun SessionScreen(
                     text = draft,
                     onText = { draft = it; hub.drafts[key] = it },
                     provider = state.meta.provider,
+                    drive = reach?.drive,
                     busy = t.busy,
                     sending = sending,
                     showQuickReplies = !t.busy && items.lastOrNull() is TranscriptItem.Outcome,
