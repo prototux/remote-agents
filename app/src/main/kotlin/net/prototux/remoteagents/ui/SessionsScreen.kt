@@ -1,6 +1,7 @@
 package net.prototux.remoteagents.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -54,6 +56,7 @@ import kotlinx.coroutines.launch
 import net.prototux.remoteagents.Container
 import net.prototux.remoteagents.api.Format
 import net.prototux.remoteagents.api.Liveness
+import net.prototux.remoteagents.api.ProviderPicker
 import net.prototux.remoteagents.api.Providers
 import net.prototux.remoteagents.api.Reach
 import net.prototux.remoteagents.api.ServerInfo
@@ -132,8 +135,9 @@ fun SessionsScreen(
             onRefresh = { scope.launch { refreshing = true; load(); refreshing = false } },
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
+            val filters = remember(info, sessions) { ProviderPicker.filters(info, sessions.orEmpty()) }
             val shown = sessions.orEmpty().filter { s ->
-                (filter == null || (if (filter == Providers.CODEX) s.provider == Providers.CODEX else s.provider != Providers.CODEX)) &&
+                (filter == null || Providers.canonical(s.provider) == filter) &&
                     (query.isBlank() || listOfNotNull(s.title, s.cwd, s.id).any { it.contains(query, ignoreCase = true) })
             }
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
@@ -142,10 +146,9 @@ fun SessionsScreen(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = tokens.screenMargin, vertical = 4.dp))
                 }
                 item {
-                    Row(Modifier.padding(horizontal = tokens.screenMargin), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = tokens.screenMargin), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(filter == null, { filter = null }, label = { Text("All") })
-                        FilterChip(filter == Providers.CLAUDE, { filter = Providers.CLAUDE }, label = { Text("Claude Code") })
-                        FilterChip(filter == Providers.CODEX, { filter = Providers.CODEX }, label = { Text("Codex") })
+                        filters.forEach { p -> FilterChip(filter == p, { filter = p }, label = { Text(Providers.label(p)) }) }
                     }
                 }
                 if (server.needsRepair) item {
@@ -171,7 +174,7 @@ fun SessionsScreen(
 
     if (newSession) {
         NewSessionSheet(
-            container, server,
+            container, server, info,
             knownCwds = sessions.orEmpty().mapNotNull { it.cwd }.distinct(),
             onDismiss = { newSession = false },
             onStarted = { key, provider, title -> newSession = false; onOpenKey(key, provider, title) },

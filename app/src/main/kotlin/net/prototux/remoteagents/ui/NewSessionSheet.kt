@@ -13,13 +13,11 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -35,22 +33,32 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import net.prototux.remoteagents.Container
 import net.prototux.remoteagents.api.Format
+import net.prototux.remoteagents.api.ProviderOption
+import net.prototux.remoteagents.api.ProviderPicker
 import net.prototux.remoteagents.api.Providers
+import net.prototux.remoteagents.api.ServerInfo
 import net.prototux.remoteagents.data.ServerConfig
 import net.prototux.remoteagents.data.SessionKey
 
-/** Agent, working directory (empty = the server's project directory) and the first prompt. */
+/**
+ * Agent, working directory (empty = the server's project directory) and the first prompt. The agents are the ones
+ * [info] says are installed (agentd), else Claude Code and Codex (even-terminal, or `/info` not answered yet).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NewSessionSheet(
     container: Container,
     server: ServerConfig,
+    info: ServerInfo?,
     knownCwds: List<String>,
     onDismiss: () -> Unit,
     onStarted: (SessionKey, String, String) -> Unit,
     onError: (String) -> Unit,
 ) {
-    var provider by rememberSaveable { mutableStateOf(server.defaultProvider) }
+    val options = remember(info) { ProviderPicker.options(info) }
+    var picked by rememberSaveable { mutableStateOf(server.defaultProvider) }
+    // What was picked while it is offered; the server's default or the first option otherwise (/info may arrive later).
+    val provider = ProviderPicker.select(options, picked)
     var cwd by rememberSaveable { mutableStateOf(server.recentCwds.firstOrNull().orEmpty()) }
     var text by rememberSaveable { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
@@ -63,10 +71,10 @@ fun NewSessionSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("New session", style = MaterialTheme.typography.titleLarge)
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                providerOptions().forEachIndexed { i, p ->
-                    SegmentedButton(provider == p, { provider = p }, SegmentedButtonDefaults.itemShape(i, 2)) { Text(Providers.label(p)) }
-                }
+            if (options.isEmpty()) {
+                Text("This server runs no agent that can start a session.", color = MaterialTheme.colorScheme.error)
+            } else FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                options.forEach { o -> FilterChip(provider == o.name, { picked = o.name }, label = { ProviderChipLabel(o) }) }
             }
             OutlinedTextField(
                 cwd, { cwd = it }, label = { Text("Working directory") }, singleLine = true,
@@ -78,11 +86,12 @@ fun NewSessionSheet(
             }
             VoiceTextField(container, text, { text = it }, label = "What should the agent do?", minLines = 3, modifier = Modifier.fillMaxWidth())
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(enabled = text.isNotBlank() && !sending, onClick = {
+                Button(enabled = text.isNotBlank() && !sending && provider != null, onClick = {
+                    val chosen = provider ?: return@Button
                     sending = true
                     scope.launch {
-                        runCatching { container.hub.newSession(server.id, provider, cwd.trim(), text.trim()) }.fold(
-                            { key -> container.settings.rememberPrompt(text.trim()); onStarted(key, provider, text.trim().lineSequence().first().take(80)) },
+                        runCatching { container.hub.newSession(server.id, chosen, cwd.trim(), text.trim()) }.fold(
+                            { key -> container.settings.rememberPrompt(text.trim()); onStarted(key, chosen, text.trim().lineSequence().first().take(80)) },
                             { sending = false; onError(it.describe()) },
                         )
                     }
@@ -91,4 +100,10 @@ fun NewSessionSheet(
             }
         }
     }
+}
+
+@Composable
+private fun ProviderChipLabel(o: ProviderOption) = Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Text(o.label)
+    if (o.experimental) Text(Providers.EXPERIMENTAL_TAG, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
 }

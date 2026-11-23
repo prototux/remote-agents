@@ -99,7 +99,15 @@ object SlashCommands {
         SlashCommand("/model", "Show or change the model"),
     )
 
-    fun forProvider(provider: String?) = if (provider == Providers.CODEX) CODEX else CLAUDE
+    /**
+     * pi, opencode and Hermes get none: agentd's protocol research (its docs/protocols) records no commands for prompts
+     * sent the way agentd sends them, and a command the agent does not run would reach the model as plain text.
+     */
+    fun forProvider(provider: String?) = when (Providers.canonical(provider)) {
+        Providers.CLAUDE -> CLAUDE
+        Providers.CODEX -> CODEX
+        else -> emptyList()
+    }
 
     fun matching(provider: String?, typed: String): List<SlashCommand> =
         if (!typed.startsWith("/") || typed.contains(' ') || typed.contains('\n')) emptyList()

@@ -389,3 +389,23 @@ Review fixes to S11 (2026-11-22). Choices made inside S11, checked against the o
   (`AgentsState.refreshedWith`); `/info` is asked again before each stream reconnect (last answer kept when it
   is unreachable), so a rollback to even-terminal stops `agents=1`; an agent screen checks agentd first and
   retries its first page instead of falling through to `/events?agentId=`.
+
+## Providers from agentd (2026-11-23)
+
+agentd now has experimental Codex, opencode and Hermes adapters (written from their docs, never run against them;
+owner decision 2026-11-23) and lists what it knows in `/info` `server.providers`
+(`{name, label, installed, experimental, canFollow, canHost, canDriveTerminal, canApprove}`). Choices made here:
+- **New-session sheet**: offers the providers that are `installed` and `canHost`, in agentd's order; experimental ones
+  carry the tag "experimental · untested". Without `server.providers` (even-terminal, an older agentd, or `/info` not
+  answered yet) it offers Claude Code and Codex as before. An empty list says so and disables Start. The server's
+  default provider is preselected when offered, else the first. The picker is now a row of filter chips: five
+  segmented buttons do not fit a phone's width.
+- **Labels and badges**: `Providers.label` knows pi, opencode and Hermes Agent (pi used to show as "Claude Code");
+  an unknown name shows as itself. The session-list filters are All, Claude Code, Codex, then any other provider the
+  server has installed or a session carries; sessions match by canonical name (claude-sync and no provider = Claude).
+- **Slash commands**: none for pi, opencode and Hermes. agentd's protocol research records none for prompts sent the way
+  agentd sends them, and a command the agent does not run would reach the model as plain text. Claude's and Codex's
+  lists are unchanged (Codex's was written for even-terminal; whether agentd's experimental Codex runs them is not
+  known).
+- **Not changed**: the server edit screen's default-provider choice (still Claude Code or Codex).
+- Not verified: the UI on a device (no emulator by rule); any session of the three experimental providers.

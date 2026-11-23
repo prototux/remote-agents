@@ -26,9 +26,24 @@ internal data class SessionsResponse(val sessions: List<SessionSummary> = emptyL
 @Serializable
 data class Account(val email: String? = null, val organization: String? = null, val subscriptionType: String? = null)
 
-/** `/info` `server` (agentd): which server answers. even-terminal sends none. */
+/** `/info` `server` (agentd): which server answers, and the providers it knows. even-terminal sends none. */
 @Serializable
-data class ServerIdent(val name: String? = null, val version: String? = null)
+data class ServerIdent(val name: String? = null, val version: String? = null, val providers: List<ProviderInfo>? = null)
+
+/** agentd `/info` `server.providers` item: a provider this server knows, whether it runs here and what it supports. */
+@Serializable
+data class ProviderInfo(
+    val name: String = "",
+    val label: String? = null,
+    /** The agent was found on the server's machine; otherwise the name is accepted but answers 501. */
+    val installed: Boolean = false,
+    /** Written from the agent's documentation only, never run against it (Codex, opencode, Hermes). */
+    val experimental: Boolean = false,
+    val canFollow: Boolean = false,
+    val canHost: Boolean = false,
+    val canDriveTerminal: Boolean = false,
+    val canApprove: Boolean = false,
+)
 
 @Serializable
 data class InfoExtra(val expose: String? = null, val server: ServerIdent? = null)
@@ -47,6 +62,9 @@ data class ServerInfo(
      * Only agentd gets `agents=1`, `/agents` and `agentId=`; even-terminal never does.
      */
     val isAgentd: Boolean get() = (server ?: extra?.server)?.name == "agentd"
+
+    /** agentd's `server.providers`; null when the server does not list them (even-terminal, older agentd). */
+    val providers: List<ProviderInfo>? get() = (server ?: extra?.server)?.providers
 }
 
 @Serializable

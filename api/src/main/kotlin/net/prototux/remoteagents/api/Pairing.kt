@@ -32,16 +32,3 @@ data class PairingInfo(
         }
     }
 }
-
-object Providers {
-    const val CLAUDE = "claude"
-    const val CODEX = "codex"
-    /** The values the server's provider guard accepts. */
-    val ALL = setOf(CLAUDE, "claude-sync", CODEX)
-
-    fun label(provider: String?) = when (provider) {
-        CODEX -> "Codex"
-        null, "" -> "Agent"
-        else -> "Claude Code"
-    }
-}
