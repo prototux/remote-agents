@@ -24,6 +24,9 @@ GPL-3.0-or-later. Decisions and their reasons: [docs/decisions.md](docs/decision
   dictation, Interrupt while working, messages can be queued while busy.
 - **Approvals**: permission requests (one button per offered option) and AskUserQuestion (single or multiple
   choice, descriptions, previews, free text), in a sheet that opens by itself.
+- **Bash auto-allow** (agentd): let shell commands run without asking, globally, per provider or per session,
+  with a built-in still-ask safety net; set on the server screen or per session, auto-allowed calls marked in
+  the transcript.
 - **Background**: sessions you open or start are followed. While one works, a quiet ongoing notification keeps
   the stream open (foreground service) and you get notified of approvals, questions, finished turns and errors.
   Approve or deny, answer, or reply to a finished turn from the notification (unlock required by default).

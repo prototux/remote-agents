@@ -411,3 +411,42 @@ owner decision 2026-11-23) and lists what it knows in `/info` `server.providers`
   would reach the model as text (changed 2026-11-23 after review).
 - **Not changed**: the server edit screen's default-provider choice (still Claude Code or Codex).
 - Not verified: the UI on a device (no emulator by rule); any session of the three experimental providers.
+
+## Bash auto-allow (owner decisions 2026-11-25)
+
+agentd (already implemented) can let shell-execution permission requests through without reaching the
+phone: a global switch, overridden per provider, overridden again per session (in agentd's memory only,
+so a stale "yes" never outlives a restart or the session itself); a fixed, server-side still-ask list
+(`sudo`, `rm -rf`, `git push --force`, `git reset --hard`, `git clean -f`, `dd`, `mkfs`) always reaches the
+phone regardless, as a safety net, not a security boundary. `/api/info`'s `policy:true` says the API
+exists (absent on even-terminal and older agentd); `GET`/`PUT /api/policy` read and replace the global
+switch and provider overrides; `POST /api/sessions/{id}/policy` sets or clears (`null`) a session's own
+override. `/sessions`, `/status` and `permission_result` (`auto:true`) carry the rest. Implementation
+choices made here:
+- **`:api`**: `PolicyInfo`/`BashAutoAllow`/`SessionPolicyState` (lenient parsing, as everything else);
+  `EvenTerminalClient.policy()`/`setPolicy()`/`setSessionPolicy()`. A provider mapped to `null` in
+  `setPolicy`'s map is left out of the request body, so it inherits the global switch again ("server
+  default" in the UI) rather than being sent as an explicit `false`. `ServerInfo.policy`,
+  `SessionSummary`/`StatusResponse`/`Reach`'s `bashAutoAllow`/`bashAutoAllowSession`, and
+  `AgentMessage.PermissionResult.auto` are all nullable/default-false, so even-terminal and older agentd
+  parse exactly as before.
+- **Server setting**: on `ServerEditScreen`, not `SettingsScreen` — the policy lives on the server, like the
+  address and the default agent, not as a phone-side preference, and the screen already has the pattern
+  (read `/info` once, "Test connection") for server state fetched over the network. Shown only when `/info`
+  reports `policy`; read once when the screen opens for an existing (already paired) server. A switch
+  ("Always allow shell commands") then, for each provider the server's `/info` lists, a three-way segmented
+  choice ("Server default" / "Always allow" / "Ask"), labelled like `ProviderPicker`. Every change is sent
+  with `PUT` at once (no separate Save step, unlike the rest of the screen, since this is the server's own
+  state, not this phone's local `ServerConfig`) and the row shows the server's reply, not the tap.
+- **Per-session**: `SessionScreen`'s overflow menu gets "Shell commands in this session" only when
+  `Reach.bashAutoAllow` is non-null (agentd reporting the policy for this session; even-terminal and a
+  session on agentd without the API never show it). A small `AlertDialog` offers "Server default
+  (currently: allow/ask)" / "Always allow" / "Ask", `POST`s the choice, and `SessionHub.setSessionPolicy`
+  folds the reply straight into `Reach` so the menu's "currently" text is never stale.
+- **Transcript**: no new card. agentd never publishes a `permission_request` for an auto-allowed call, and
+  the existing reducer already ignores a `permission_result` that names no open request (it only replaces
+  a card, never creates one), so there is nothing to show there and no notification fires (`Alert.Clear` is
+  a no-op cancel when nothing was posted). The one visible trace is a small "auto-allowed" label on the
+  tool row itself (`TranscriptItem.Tool.autoAllowed`, matched by `toolUseId == toolId`, carried from
+  `tool_start`/the `permission_result` through to `tool_end`'s replacement row).
+- Not verified: the UI on a device (no emulator by rule); a real agentd with the policy on.
