@@ -62,7 +62,9 @@ data class Transcript(
             is AgentMessage.ToolEnd -> {
                 val i = t.items.indexOfLast { it is TranscriptItem.Tool && it.running && (m.toolId == null || it.toolId == m.toolId) && (m.toolId != null || it.name == m.name) }
                 val todos = if (m.name == "TodoWrite") Todo.parse(m.input) ?: t.todos else t.todos
+                // autoAllowed carries over from the running row: the policy's permission_result arrives before tool_end.
                 val done = TranscriptItem.Tool(m.toolId, m.name, m.summary, m.input, m.output, running = false,
+                    autoAllowed = i >= 0 && (t.items[i] as TranscriptItem.Tool).autoAllowed,
                     key = if (i >= 0) t.items[i].key else "x${m.toolId ?: m.id ?: t.items.size}")
                 t.copy(items = if (i >= 0) t.items.replace(i, done) else t.items + done, todos = todos)
             }
@@ -75,7 +77,13 @@ data class Transcript(
                 // agentd names the request it resolves; older servers resolve the latest one, and only one is open.
                 val id = m.toolUseId
                 val i = t.items.indexOfLast { it is TranscriptItem.Permission && it.result == null && (id == null || it.request.toolUseId == id) }
-                val items = if (i >= 0) t.items.replace(i, (t.items[i] as TranscriptItem.Permission).copy(result = m)) else t.items
+                var items = if (i >= 0) t.items.replace(i, (t.items[i] as TranscriptItem.Permission).copy(result = m)) else t.items
+                // agentd's bash auto-allow (owner decision 2026-11-25): no permission_request precedes this
+                // result, so there is no card to fill in; the tool row it allowed gets a label instead.
+                if (m.auto && id != null) {
+                    val ti = items.indexOfLast { it is TranscriptItem.Tool && it.toolId == id }
+                    if (ti >= 0) items = items.replace(ti, (items[ti] as TranscriptItem.Tool).copy(autoAllowed = true))
+                }
                 val open = if (id == null) emptyList() else t.openPermissions.filter { it.toolUseId != id }
                 val rest = t.copy(items = items, openPermissions = open, pendingPermission = open.lastOrNull())
                 rest.copy(state = if (rest.awaitingInput) SessionState.AWAITING else SessionState.BUSY)
@@ -150,6 +158,8 @@ sealed interface TranscriptItem {
     data class Tool(
         val toolId: String?, val name: String, val summary: String?, val input: JsonElement?, val output: String?,
         val running: Boolean, override val key: String,
+        /** agentd's "always allow Bash" policy allowed this call by itself, with no permission card shown. */
+        val autoAllowed: Boolean = false,
     ) : TranscriptItem
     data class Permission(val request: AgentMessage.PermissionRequest, val result: AgentMessage.PermissionResult?, override val key: String) : TranscriptItem
     data class Ask(val question: AgentMessage.UserQuestion, val answers: Map<String, String>?, override val key: String) : TranscriptItem

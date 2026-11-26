@@ -1,5 +1,6 @@
 package net.prototux.remoteagents.api
 
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -31,6 +32,16 @@ class FakeEvenTerminal(val token: String = "0123456789abcdef0123456789abcdef") :
     val prompts = CopyOnWriteArrayList<JsonObject>()
     private var nextId = 1L
     private var nextSession = 1
+
+    // --- agentd's "always allow Bash" policy (api/policy.go, approval/policy.go), scripted for tests. ---
+    private var policyGlobal = false
+    private val policyProviders = LinkedHashMap<String, Boolean>()
+    private val sessionPolicy = HashMap<String, Boolean>()
+    /** Bodies of every `PUT /api/policy` call, in order. */
+    val policyPuts = CopyOnWriteArrayList<JsonObject>()
+    /** Bodies of every `POST /api/sessions/{id}/policy` call, in order. */
+    val sessionPolicyPosts = CopyOnWriteArrayList<JsonObject>()
+    private val stillAskLabels = listOf("sudo", "rm -rf", "git push --force", "git reset --hard", "git clean -f", "dd", "mkfs")
 
     init {
         server.dispatcher = object : Dispatcher() {
@@ -64,6 +75,10 @@ class FakeEvenTerminal(val token: String = "0123456789abcdef0123456789abcdef") :
         }
         val body = r.body?.utf8()?.takeIf { it.isNotBlank() }?.let { ApiJson.parseToJsonElement(it) as JsonObject }
         val sid = body?.str("sessionId") ?: r.url.queryParameter("sessionId")
+        Regex("""/api/sessions/([^/]+)/policy""").matchEntire(r.url.encodedPath)?.let { m ->
+            if (r.method != "POST") return json(404, """{"error":"Not found"}""")
+            return sessionPolicyPost(m.groupValues[1], body)
+        }
         return when ("${r.method} ${r.url.encodedPath}") {
             "GET /api/info" -> json(200, """{"account":{"email":"me@example.org","organization":"Org","subscriptionType":"max"},"model":"opus","version":"0.10.4","provider":"claude","extra":{"expose":"off"}}""")
             "GET /api/sessions" -> json(200, buildJsonObject {
@@ -123,9 +138,46 @@ class FakeEvenTerminal(val token: String = "0123456789abcdef0123456789abcdef") :
                 sid !in sessions -> json(404, """{"error":"Session not found"}""")
                 else -> { emit(sid, """{"type":"result","success":false,"text":"Interrupted by user"}""", """{"type":"status","state":"idle"}"""); json(200, """{"ok":true}""") }
             }
+            "GET /api/policy" -> json(200, policyJson())
+            "PUT /api/policy" -> {
+                val ba = body?.get("bashAutoAllow") as? JsonObject ?: return json(400, """{"error":"Missing 'bashAutoAllow'"}""")
+                policyPuts += body
+                val incoming = ba["providers"] as? JsonObject
+                incoming?.keys?.firstOrNull { it !in setOf("claude", "codex", "pi", "opencode", "hermes") }?.let {
+                    return json(400, """{"error":"Unknown provider \"$it\" in bashAutoAllow.providers","code":"unknown_provider"}""")
+                }
+                policyGlobal = ba.bool("global")
+                policyProviders.clear()
+                incoming?.forEach { (k, v) -> policyProviders[k] = (v as? JsonPrimitive)?.content == "true" }
+                json(200, policyJson())
+            }
             "GET /api/boom" -> json(500, """{"error":"internal"}""")
             else -> json(404, """{"error":"Not found"}""")
         }
+    }
+
+    private fun policyJson(): String = buildJsonObject {
+        put("bashAutoAllow", buildJsonObject {
+            put("global", policyGlobal)
+            put("providers", buildJsonObject { policyProviders.forEach { (k, v) -> put(k, v) } })
+        })
+        put("stillAsk", kotlinx.serialization.json.JsonArray(stillAskLabels.map { JsonPrimitive(it) }))
+    }.toString()
+
+    /** `effective` falls back to the (fixed, in this fake) "claude" provider, else the global switch. */
+    private fun sessionPolicyPost(sid: String, body: JsonObject?): MockResponse {
+        if (sid !in sessions) return json(404, """{"error":"Session not found"}""")
+        if (body == null || "bashAutoAllow" !in body) return json(400, """{"error":"Missing 'bashAutoAllow'"}""")
+        sessionPolicyPosts += body
+        when (val v = body["bashAutoAllow"]) {
+            is JsonNull -> sessionPolicy.remove(sid)
+            is JsonPrimitive -> sessionPolicy[sid] = v.content == "true"
+            else -> return json(400, """{"error":"'bashAutoAllow' must be true, false or null"}""")
+        }
+        val effective = sessionPolicy[sid] ?: policyProviders["claude"] ?: policyGlobal
+        return json(200, buildJsonObject {
+            put("bashAutoAllow", buildJsonObject { put("effective", effective); sessionPolicy[sid]?.let { put("session", it) } })
+        }.toString())
     }
 
     private fun JsonObject?.bool(key: String) = (this?.get(key) as? JsonPrimitive)?.content == "true"

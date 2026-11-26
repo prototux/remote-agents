@@ -6,7 +6,16 @@ package net.prototux.remoteagents.api
  * existing session is confirmed first ([resumeWarning]): even-terminal cannot see terminal sessions and
  * resumes them in a second process, which forks the conversation (seen with session bd72f82f).
  */
-data class Reach(val liveness: String? = null, val drive: String? = null, val canApprove: Boolean? = null) {
+data class Reach(
+    val liveness: String? = null, val drive: String? = null, val canApprove: Boolean? = null,
+    /**
+     * agentd's "always allow Bash" policy for this session: the effective value, and, only when this
+     * session has its own override, that override (null otherwise). Null on even-terminal and on agentd
+     * without the policy API ([ServerInfo.policy] says which).
+     */
+    val bashAutoAllow: Boolean? = null,
+    val bashAutoAllowSession: Boolean? = null,
+) {
     /** Only agentd reports liveness, and only agentd accepts `fork`. */
     val isAgentd: Boolean get() = liveness != null
 
@@ -51,8 +60,8 @@ data class Reach(val liveness: String? = null, val drive: String? = null, val ca
         }
 
     companion object {
-        fun of(s: SessionSummary) = Reach(s.liveness, s.drive, s.canApprove)
-        fun of(s: StatusResponse) = Reach(s.liveness, s.drive, s.canApprove)
+        fun of(s: SessionSummary) = Reach(s.liveness, s.drive, s.canApprove, s.bashAutoAllow, s.bashAutoAllowSession)
+        fun of(s: StatusResponse) = Reach(s.liveness, s.drive, s.canApprove, s.bashAutoAllow, s.bashAutoAllowSession)
 
         fun driveLabel(drive: String?): String = when (drive) {
             Drive.HOSTED -> "hosted"

@@ -2,7 +2,9 @@ package net.prototux.remoteagents.api
 
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.Call
@@ -105,6 +107,31 @@ class EvenTerminalClient(val endpoint: Endpoint, base: OkHttpClient = OkHttpClie
         post<JsonObject>("interrupt", buildJsonObject { put("sessionId", sessionId); provider?.let { put("provider", it) } })
     }
 
+    /** The "always allow Bash" policy (agentd; absent elsewhere, see [ServerInfo.policy]). */
+    suspend fun policy(): PolicyInfo = get("policy")
+
+    /**
+     * Replaces the global switch and the provider overrides. A provider mapped to null in [providers] is
+     * left out of the request, so it inherits [global] again ("server default" in the UI); the others are
+     * sent as explicit true/false.
+     */
+    suspend fun setPolicy(global: Boolean, providers: Map<String, Boolean?> = emptyMap()): PolicyInfo =
+        put(listOf("policy"), buildJsonObject {
+            put("bashAutoAllow", buildJsonObject {
+                put("global", global)
+                val overrides = providers.filterValues { it != null }
+                if (overrides.isNotEmpty()) put("providers", buildJsonObject { overrides.forEach { (k, v) -> put(k, v!!) } })
+            })
+        })
+
+    /** [bashAutoAllow] null clears this session's override, so it follows the provider/global policy again. */
+    suspend fun setSessionPolicy(sessionId: String, bashAutoAllow: Boolean?, provider: String? = null): SessionPolicyState =
+        post<SessionPolicyResponse>(
+            listOf("sessions", sessionId, "policy"),
+            buildJsonObject { put("bashAutoAllow", bashAutoAllow?.let { JsonPrimitive(it) } ?: JsonNull) },
+            "provider" to provider,
+        ).bashAutoAllow
+
     internal fun url(path: List<String>, vararg query: Pair<String, String?>): HttpUrl =
         endpoint.baseUrl.newBuilder().apply {
             path.forEach { addPathSegment(it) }
@@ -116,8 +143,13 @@ class EvenTerminalClient(val endpoint: Endpoint, base: OkHttpClient = OkHttpClie
     private suspend inline fun <reified T> get(path: List<String>, vararg query: Pair<String, String?>): T =
         decode(execute(Request.Builder().url(url(path, *query)).get().build()))
 
-    private suspend inline fun <reified T> post(path: String, body: JsonObject): T =
-        decode(execute(Request.Builder().url(url(listOf(path))).post(body.toString().toRequestBody(JSON)).build()))
+    private suspend inline fun <reified T> post(path: String, body: JsonObject): T = post(listOf(path), body)
+
+    private suspend inline fun <reified T> post(path: List<String>, body: JsonObject, vararg query: Pair<String, String?>): T =
+        decode(execute(Request.Builder().url(url(path, *query)).post(body.toString().toRequestBody(JSON)).build()))
+
+    private suspend inline fun <reified T> put(path: List<String>, body: JsonObject, vararg query: Pair<String, String?>): T =
+        decode(execute(Request.Builder().url(url(path, *query)).put(body.toString().toRequestBody(JSON)).build()))
 
     private inline fun <reified T> decode(body: String): T = ApiJson.decodeFromString(body.ifBlank { "{}" })
 

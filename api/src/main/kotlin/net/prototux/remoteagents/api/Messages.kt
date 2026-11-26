@@ -58,10 +58,14 @@ sealed interface AgentMessage {
         /** Who asks, when it is a subagent: its label, else its id. */
         val askedBy: String? get() = agentLabel?.ifBlank { null } ?: agentId
     }
-    /** [toolUseId] (agentd) names the request it resolves; [decision] `expired` means it ended unanswered. */
+    /**
+     * [toolUseId] (agentd) names the request it resolves; [decision] `expired` means it ended unanswered.
+     * [auto] (agentd): the "always allow Bash" policy allowed it by itself, with no [PermissionRequest]
+     * published for it (no card, no notification); the tool row it allowed is the only visible trace.
+     */
     data class PermissionResult(
         override val id: Long?, override val raw: JsonObject, val toolName: String, val summary: String?, val decision: String,
-        val toolUseId: String? = null,
+        val toolUseId: String? = null, val auto: Boolean = false,
     ) : AgentMessage
     data class UserQuestion(
         override val id: Long?, override val raw: JsonObject, val questions: List<Question>, val toolUseId: String?,
@@ -117,7 +121,10 @@ sealed interface AgentMessage {
                     },
                     json.str("agentId")?.ifBlank { null }, json.str("agentLabel")?.ifBlank { null },
                 )
-                "permission_result" -> PermissionResult(id, json, json.str("toolName") ?: "tool", json.str("summary"), json.str("decision") ?: "", json.str("toolUseId"))
+                "permission_result" -> PermissionResult(
+                    id, json, json.str("toolName") ?: "tool", json.str("summary"), json.str("decision") ?: "",
+                    json.str("toolUseId"), json.bool("auto") == true,
+                )
                 "user_question" -> UserQuestion(
                     id, json,
                     (json["questions"] as? JsonArray).orEmpty().mapNotNull { q -> (q as? JsonObject)?.let(Question::parse) },

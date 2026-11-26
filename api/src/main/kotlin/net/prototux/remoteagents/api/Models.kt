@@ -18,6 +18,10 @@ data class SessionSummary(
     val drive: String? = null,
     /** agentd extension: the phone can answer this session's permission requests. */
     val canApprove: Boolean? = null,
+    /** agentd's "always allow Bash" policy, effective for this session (absent on even-terminal). */
+    val bashAutoAllow: Boolean? = null,
+    /** agentd extension: this session's own override of the policy above, when it has one. */
+    val bashAutoAllowSession: Boolean? = null,
 )
 
 @Serializable
@@ -56,6 +60,8 @@ data class ServerInfo(
     val provider: String? = null,
     val extra: InfoExtra? = null,
     val server: ServerIdent? = null,
+    /** agentd extension: the "always allow Bash" policy API (`/api/policy`, per-session policy) exists. */
+    val policy: Boolean? = null,
 ) {
     /**
      * agentd puts `server` at the top level of `/info`; `extra.server` is read too, so either place counts.
@@ -86,6 +92,8 @@ data class StatusResponse(
     val liveness: String? = null,
     val drive: String? = null,
     val canApprove: Boolean? = null,
+    val bashAutoAllow: Boolean? = null,
+    val bashAutoAllowSession: Boolean? = null,
 )
 
 @Serializable
