@@ -34,6 +34,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarHost
@@ -108,6 +109,7 @@ fun SessionScreen(
     // A prompt waiting for the owner's go-ahead to resume the session in a new process; the fork dialog's text.
     var confirmSend by remember(key) { mutableStateOf<String?>(null) }
     var forkText by remember(key) { mutableStateOf<String?>(null) }
+    var shellPolicyOpen by rememberSaveable { mutableStateOf(false) }
     val reach = state.meta.reach
     val voice = rememberVoice(container)
 
@@ -198,6 +200,8 @@ fun SessionScreen(
                         DropdownMenuItem(text = { Text("Reload") }, onClick = { menu = false; hub.reload(key) })
                         // Only agentd forks; even-terminal would ignore the flag and resume this session instead.
                         if (reach?.canFork == true) DropdownMenuItem(text = { Text("Fork into a new session") }, onClick = { menu = false; forkText = draft })
+                        // Only agentd reports the policy (the effective/session fields on reach); even-terminal never does.
+                        if (reach?.bashAutoAllow != null) DropdownMenuItem(text = { Text("Shell commands in this session") }, onClick = { menu = false; shellPolicyOpen = true })
                         DropdownMenuItem(text = { Text("Copy session id") }, onClick = { menu = false; clipboard.setText(AnnotatedString(sessionId)) })
                         DropdownMenuItem(text = { Text("Copy last reply") }, onClick = {
                             menu = false
@@ -291,6 +295,15 @@ fun SessionScreen(
     }
 
     if (agentsOpen) AgentsSheet(state.agents, onOpen = { agentsOpen = false; onOpenAgent(it.id, it.title) }, onDismiss = { agentsOpen = false })
+
+    val policyEffective = reach?.bashAutoAllow
+    val policySession = reach?.bashAutoAllowSession
+    if (shellPolicyOpen && policyEffective != null) ShellPolicyDialog(
+        effective = policyEffective,
+        current = policySession,
+        onChoose = { choice -> shellPolicyOpen = false; act { hub.setSessionPolicy(key, choice) } },
+        onDismiss = { shellPolicyOpen = false },
+    )
 
     if (sheet && (t.pendingPermission != null || t.pendingQuestion != null)) {
         val permission = t.pendingPermission
@@ -403,4 +416,34 @@ private fun StatusStrip(t: Transcript) {
             Box(Modifier.padding(horizontal = tokens.screenMargin).padding(bottom = 8.dp)) { TodoList(t.todos) }
         }
     }
+}
+
+/**
+ * The per-session choice for agentd's "always allow Bash" policy: follow the server/provider policy
+ * ([effective]), or override it just for this session. [current] is this session's own override, if any.
+ */
+@Composable
+private fun ShellPolicyDialog(effective: Boolean, current: Boolean?, onChoose: (Boolean?) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Shell commands in this session") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                listOf(
+                    null to "Server default (currently: ${if (effective) "allow" else "ask"})",
+                    true to "Always allow",
+                    false to "Ask",
+                ).forEach { (choice, label) ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { onChoose(choice) }.padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        RadioButton(current == choice, onClick = { onChoose(choice) })
+                        Text(label)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
 }

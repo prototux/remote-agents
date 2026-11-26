@@ -18,6 +18,7 @@ import net.prototux.remoteagents.api.EvenTerminalClient
 import net.prototux.remoteagents.api.MessagesPage
 import net.prototux.remoteagents.api.Reach
 import net.prototux.remoteagents.api.SessionLiveException
+import net.prototux.remoteagents.api.SessionPolicyState
 import net.prototux.remoteagents.api.SessionState
 import net.prototux.remoteagents.api.StreamEvent
 import net.prototux.remoteagents.api.Transcript
@@ -292,6 +293,19 @@ class SessionHub(
         client(key).questionResponse(key.sessionId, answers, provider, toolUseId)
 
     suspend fun interrupt(key: SessionKey) = client(key).interrupt(key.sessionId, provider(key))
+
+    /**
+     * Sets or clears (null) this session's own override of the "always allow Bash" policy (agentd). The
+     * reply is the new truth for [Reach.bashAutoAllow]/[Reach.bashAutoAllowSession], so the menu and any
+     * banner update from it at once, without waiting for the next `/status`.
+     */
+    suspend fun setSessionPolicy(key: SessionKey, bashAutoAllow: Boolean?): SessionPolicyState {
+        val result = client(key).setSessionPolicy(key.sessionId, bashAutoAllow, provider(key))
+        val l = live[key] ?: return result
+        val reach = (l.state.value.meta.reach ?: Reach()).copy(bashAutoAllow = result.effective, bashAutoAllowSession = result.session)
+        l.state.value = l.state.value.copy(meta = l.state.value.meta.copy(reach = reach))
+        return result
+    }
 
     /** A prompt from a notification reply: the session may not be live in this process. */
     suspend fun reply(key: SessionKey, text: String, provider: String?) {

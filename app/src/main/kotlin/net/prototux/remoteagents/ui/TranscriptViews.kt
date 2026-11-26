@@ -105,6 +105,7 @@ private fun ToolRow(item: TranscriptItem.Tool, expandByDefault: Boolean, modifie
             if (item.running) CircularProgressIndicator(Modifier.size(10.dp), strokeWidth = 1.5.dp)
             else Box(Modifier.size(8.dp).background(if (failed) MaterialTheme.colorScheme.error else tokens.success, CircleShape))
             Text(view.title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            if (item.autoAllowed) Text("auto-allowed", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
                 view.subject?.ifBlank { null } ?: item.summary.orEmpty(),
                 style = MaterialTheme.typography.bodySmall, fontFamily = tokens.mono,

@@ -46,6 +46,16 @@ class AttentionRulesTest {
         assertFalse(AttentionRules.needsService(watched = true, t = idle))
     }
 
+    @Test fun `an auto-allowed permission never alerts and never leaves the session waiting`() {
+        // agentd's "always allow Bash" policy: no permission_request precedes this result.
+        val auto = m("""{"type":"permission_result","toolName":"Bash","decision":"allowed","toolUseId":"t1","auto":true}""", 1)
+        val t = Transcript().reduce(auto)
+        assertFalse(t.awaitingInput)
+        assertEquals(SessionState.BUSY, t.state)
+        // Only a Clear (a no-op cancel in the Notifier when nothing was posted), never a card-raising alert.
+        assertEquals(listOf(Alert.Clear(key, Alert.Kind.Permission)), AttentionRules.onLive(key, auto, t))
+    }
+
     @Test fun `running subagents keep a watched idle session followed, and agent updates never alert`() {
         val idle = Transcript()
         val update = m("""{"type":"agent_update","sessionId":"s1","agent":{"id":"a1","kind":"workflow","runId":"wf1","state":"running"}}""", 0)

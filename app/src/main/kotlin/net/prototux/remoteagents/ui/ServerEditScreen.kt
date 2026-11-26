@@ -1,5 +1,6 @@
 package net.prototux.remoteagents.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,6 +62,8 @@ import net.prototux.remoteagents.api.Endpoint
 import net.prototux.remoteagents.api.HostPolicy
 import net.prototux.remoteagents.api.PairingInfo
 import net.prototux.remoteagents.api.PeerCertificate
+import net.prototux.remoteagents.api.PolicyInfo
+import net.prototux.remoteagents.api.ProviderInfo
 import net.prototux.remoteagents.api.Providers
 import net.prototux.remoteagents.api.TlsProbe
 import net.prototux.remoteagents.data.ServerConfig
@@ -84,6 +88,12 @@ fun ServerEditScreen(container: Container, serverId: String?, onDone: () -> Unit
     var busy by remember { mutableStateOf(false) }
     var chain by remember { mutableStateOf<List<PeerCertificate>?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
+    // The "always allow Bash" policy (agentd extension): null while unknown, false on even-terminal/older agentd.
+    var policyAvailable by remember { mutableStateOf<Boolean?>(null) }
+    var policyProviders by remember { mutableStateOf<List<ProviderInfo>>(emptyList()) }
+    var policy by remember { mutableStateOf<PolicyInfo?>(null) }
+    var policyBusy by remember { mutableStateOf(false) }
+    var policyMessage by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
 
@@ -113,6 +123,33 @@ fun ServerEditScreen(container: Container, serverId: String?, onDone: () -> Unit
     }
 
     fun endpoint() = Endpoint(https, host.trim(), portNum ?: 0, tokenToUse, pins.toSet(), allowPublic)
+
+    // Read once on opening an existing server: whether it has the policy API, its providers, and its current
+    // policy. Unsaved servers (still pairing) have nothing to show a policy for yet.
+    LaunchedEffect(existing?.id) {
+        if (existing == null) return@LaunchedEffect
+        policyBusy = true
+        val client = container.clients.forEndpoint(endpoint())
+        val info = runCatching { client.info() }.getOrNull()
+        policyAvailable = info?.policy == true
+        policyProviders = info?.providers.orEmpty()
+        if (policyAvailable == true) runCatching { client.policy() }.onSuccess { policy = it }.onFailure { policyMessage = it.describe() }
+        policyBusy = false
+    }
+
+    // Sent immediately, like a server-side toggle: [providers] takes a provider's new choice, null meaning
+    // "server default" (left out of the request, so it inherits [global] again).
+    fun pushPolicy(global: Boolean, providers: Map<String, Boolean?>) {
+        policyBusy = true; policyMessage = null
+        scope.launch {
+            val r = runCatching { container.clients.forEndpoint(endpoint()).setPolicy(global, providers) }
+            policyBusy = false
+            r.fold({ policy = it }, { policyMessage = it.describe() })
+        }
+    }
+
+    fun providerChoice(name: String, choice: Boolean?): Map<String, Boolean?> =
+        policyProviders.associate { it.name to if (it.name == name) choice else policy?.bashAutoAllow?.providers?.get(it.name) }
 
     Scaffold(
         topBar = {
@@ -165,6 +202,10 @@ fun ServerEditScreen(container: Container, serverId: String?, onDone: () -> Unit
                     SegmentedButton(provider == p, { provider = p }, SegmentedButtonDefaults.itemShape(i, 2)) { Text(Providers.label(p)) }
                 }
             }
+
+            if (policyAvailable == true) PolicySection(policy, policyProviders, policyBusy, policyMessage, onGlobal = { on ->
+                pushPolicy(on, policy?.bashAutoAllow?.providers.orEmpty())
+            }, onProvider = { providerName, choice -> pushPolicy(policy?.bashAutoAllow?.global ?: false, providerChoice(providerName, choice)) })
 
             if (https) {
                 SectionTitle("Certificate")
@@ -277,4 +318,42 @@ private fun AddressNote(c: AddressClass?, host: String, https: Boolean) {
         null -> "Host name: the address it resolves to is checked on every connection" + (if (https) "" else "; it must be private or VPN") to false
     }
     Text(text, style = MaterialTheme.typography.bodySmall, color = if (bad) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+/**
+ * agentd's "always allow Bash" policy for this server (owner decision 2026-11-25): a global switch, then
+ * a "server default / always allow / ask" choice per provider the server reports in `/info`. Shown only
+ * when the server has the API (`/info`'s `policy`); hidden on even-terminal and older agentd.
+ */
+@Composable
+private fun PolicySection(
+    policy: PolicyInfo?, providers: List<ProviderInfo>, busy: Boolean, message: String?,
+    onGlobal: (Boolean) -> Unit, onProvider: (name: String, choice: Boolean?) -> Unit,
+) {
+    SectionTitle("Shell commands")
+    val stillAsk = policy?.stillAsk.orEmpty()
+    Text(
+        "Agents run shell commands without asking." +
+            (if (stillAsk.isNotEmpty()) " Commands like ${stillAsk.joinToString(", ")} still ask." else "") +
+            " This is a safety net, not a guarantee.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    if (policy != null) {
+        Row(Modifier.fillMaxWidth().clickable { onGlobal(!policy.bashAutoAllow.global) }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Always allow shell commands", Modifier.weight(1f))
+            Switch(policy.bashAutoAllow.global, onGlobal)
+        }
+        providers.forEach { prov ->
+            val label = if (prov.name in Providers.KNOWN) Providers.label(prov.name) else prov.label?.ifBlank { null } ?: prov.name
+            Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 4.dp))
+            val current = policy.bashAutoAllow.providers[prov.name]
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                listOf(null to "Server default", true to "Always allow", false to "Ask").forEachIndexed { i, (choice, text) ->
+                    SegmentedButton(current == choice, { onProvider(prov.name, choice) }, SegmentedButtonDefaults.itemShape(i, 3)) { Text(text) }
+                }
+            }
+        }
+    }
+    if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+    message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
 }
