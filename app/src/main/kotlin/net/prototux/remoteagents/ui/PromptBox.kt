@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -21,6 +22,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
@@ -76,7 +78,7 @@ fun PromptBox(
             }
             voice?.let { v -> (v.partial ?: v.error)?.let { Text(it, Modifier.padding(horizontal = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
             Row(verticalAlignment = Alignment.Bottom) {
-                Box {
+                FieldAligned {
                     IconButton(onClick = { historyOpen = true }, enabled = enabled) { Icon(AppIcons.History, "Recent prompts") }
                     val recent = if (historyOpen) recentPrompts() else emptyList()
                     DropdownMenu(historyOpen, { historyOpen = false }) {
@@ -93,18 +95,29 @@ fun PromptBox(
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                     trailingIcon = voice?.takeIf { enabled }?.let { v -> { MicButton(v) { onText(appendText(text, it)) } } },
                 )
-                if (busy && enabled) IconButton(onClick = onInterrupt) {
-                    Icon(AppIcons.Stop, "Interrupt", tint = MaterialTheme.colorScheme.error)
+                if (busy && enabled) FieldAligned {
+                    IconButton(onClick = onInterrupt) { Icon(AppIcons.Stop, "Interrupt", tint = MaterialTheme.colorScheme.error) }
                 }
-                FilledIconButton(
-                    onClick = { onSend(text.trim()) },
-                    enabled = enabled && text.isNotBlank() && !sending,
-                    colors = IconButtonDefaults.filledIconButtonColors(),
-                    modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
-                ) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
+                FieldAligned(Modifier.padding(start = 4.dp)) {
+                    FilledIconButton(
+                        onClick = { onSend(text.trim()) },
+                        enabled = enabled && text.isNotBlank() && !sending,
+                        colors = IconButtonDefaults.filledIconButtonColors(),
+                    ) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
+                }
             }
         }
     }
+}
+
+/**
+ * A control beside the text field, centred in a box as tall as a one-line field: the buttons (48 and 40 dp) then
+ * line up with the field's text while it has one line, and stay level with its last line as it grows, since the
+ * row aligns to the bottom. Aligning the buttons' own bottoms with the field's left each one a few dp off.
+ */
+@Composable
+private fun FieldAligned(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Box(modifier.height(OutlinedTextFieldDefaults.MinHeight), contentAlignment = Alignment.Center) { content() }
 }
 
 private val QUICK_REPLIES = listOf("Continue", "Yes, go ahead", "Run the tests", "Commit this", "/compact")
