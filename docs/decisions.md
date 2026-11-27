@@ -450,3 +450,24 @@ choices made here:
   tool row itself (`TranscriptItem.Tool.autoAllowed`, matched by `toolUseId == toolId`, carried from
   `tool_start`/the `permission_result` through to `tool_end`'s replacement row).
 - Not verified: the UI on a device (no emulator by rule); a real agentd with the policy on.
+
+## One session on the phone and in the terminal (2026-11-27)
+
+agentd 1.1.0 adds a `pty` drive (prompts typed into a session started with `agentd claude|pi` outside tmux, as
+the user's own keys) and `agentd resume [id]` (moves a phone-hosted Claude or pi session into a terminal; agentd
+ends its hosted copy as soon as the terminal has it open). agentd's `docs/decisions.md` has the design and the
+verification. App side:
+- **`:api`**: `Drive.PTY`; `Reach.label` "in terminal · pty", the banner says the text arrives "as yours" for
+  tmux and pty, and the inbox banner says how to get that (`agentd claude`). Codex slash commands are offered for
+  `pty` as for `tmux` (a TUI reads them). `Reach.resumeCommand(provider, id)` is `agentd resume <first 8 of the
+  id>` for a hosted or ended Claude/pi session on agentd, null otherwise (even-terminal, already in a terminal,
+  other providers).
+- **Session screen**: "Continue on the computer" in the overflow menu (only when `resumeCommand` is non-null)
+  opens a dialog with the command (selectable, monospace) and "Copy command". Nothing is sent to the server: the
+  hand-over happens when the command runs on the workstation.
+- **Prompt box**: the history, interrupt and send buttons are each centred in a box of
+  `OutlinedTextFieldDefaults.MinHeight`; the row still aligns to the bottom, so they line up with a one-line
+  field's text and stay with the last line as the field grows (before: bottoms aligned, every button a few dp
+  off the text).
+- Not verified: the UI on a device. The emulator (nested KVM in this VM) did not boot in 35 min; the alignment
+  follows from the Material 3 sizes (field 56 dp, icon buttons 48 dp, filled icon button 40 dp).

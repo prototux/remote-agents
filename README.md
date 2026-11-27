@@ -27,6 +27,9 @@ GPL-3.0-or-later. Decisions and their reasons: [docs/decisions.md](docs/decision
 - **Bash auto-allow** (agentd): let shell commands run without asking, globally, per provider or per session,
   with a built-in still-ask safety net; set on the server screen or per session, auto-allowed calls marked in
   the transcript.
+- **Phone and computer, one session** (agentd 1.1+): sessions started with `agentd claude|pi` get your messages
+  typed in as yours (not as "a message from another session"); "Continue on the computer" in a session's menu
+  gives the `agentd resume <id>` command that moves a phone session to a terminal, which the app keeps following.
 - **Background**: sessions you open or start are followed. While one works, a quiet ongoing notification keeps
   the stream open (foreground service) and you get notified of approvals, questions, finished turns and errors.
   Approve or deny, answer, or reply to a finished turn from the notification (unlock required by default).
