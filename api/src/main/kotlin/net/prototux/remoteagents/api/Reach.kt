@@ -38,8 +38,9 @@ data class Reach(
     /** The session screen's banner for a terminal session; null otherwise. */
     val banner: String?
         get() = if (!inTerminal) null else "Running in a terminal: " + when (drive) {
-            Drive.TMUX -> "messages are typed into it via tmux"
-            Drive.INBOX -> "messages arrive in it as a message from another Claude session"
+            Drive.TMUX, Drive.PTY -> "messages are typed into it as yours"
+            Drive.INBOX -> "messages arrive in it as a message from another Claude session (start it with " +
+                "agentd claude to have them typed in as yours)"
             Drive.STOPHOOK -> "messages are delivered when the turn ends"
             else -> "watch only"
         }
@@ -59,6 +60,17 @@ data class Reach(
             else -> null
         }
 
+    /**
+     * The command that goes on with this session in a terminal on the workstation, for a Claude or pi session agentd
+     * hosts or that has ended; agentd then ends its own process and the app keeps following the session there.
+     * Null on even-terminal, for a session already in a terminal, and for providers `agentd resume` does not run.
+     */
+    fun resumeCommand(provider: String?, sessionId: String): String? {
+        val p = Providers.canonical(provider)
+        if (!isAgentd || inTerminal || (p != Providers.CLAUDE && p != Providers.PI)) return null
+        return "agentd resume " + sessionId.take(8)
+    }
+
     companion object {
         fun of(s: SessionSummary) = Reach(s.liveness, s.drive, s.canApprove, s.bashAutoAllow, s.bashAutoAllowSession)
         fun of(s: StatusResponse) = Reach(s.liveness, s.drive, s.canApprove, s.bashAutoAllow, s.bashAutoAllowSession)
@@ -66,6 +78,7 @@ data class Reach(
         fun driveLabel(drive: String?): String = when (drive) {
             Drive.HOSTED -> "hosted"
             Drive.TMUX -> "tmux"
+            Drive.PTY -> "pty"
             Drive.INBOX -> "inbox"
             Drive.STOPHOOK -> "after the turn"
             else -> "watch only"

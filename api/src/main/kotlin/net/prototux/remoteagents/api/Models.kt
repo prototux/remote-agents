@@ -128,6 +128,8 @@ object Liveness {
 object Drive {
     const val HOSTED = "hosted"
     const val TMUX = "tmux"
+    /** Typed into the pty of agentd's relay: the agent was started with `agentd claude|pi` outside tmux. */
+    const val PTY = "pty"
     const val INBOX = "inbox"
     const val STOPHOOK = "stophook"
     const val NONE = "none"

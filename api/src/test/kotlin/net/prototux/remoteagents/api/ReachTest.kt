@@ -45,7 +45,9 @@ class ReachTest {
 
     @Test fun `banners, watch only and resume warnings`() {
         val (tmux, none, hosted, ended, unknown) = sessions("sessions_agentd.json").map(Reach::of)
-        assertEquals("Running in a terminal: messages are typed into it via tmux", tmux.banner)
+        assertEquals("Running in a terminal: messages are typed into it as yours", tmux.banner)
+        assertEquals(tmux.banner, Reach(Liveness.TERMINAL, Drive.PTY).banner)
+        assertEquals("in terminal · pty", Reach(Liveness.TERMINAL, Drive.PTY).label)
         assertEquals("Running in a terminal: watch only", none.banner)
         assertEquals("Running in a terminal: messages are delivered when the turn ends", Reach(Liveness.TERMINAL, Drive.STOPHOOK).banner)
         assertNotNull(Reach(Liveness.TERMINAL, Drive.INBOX).banner)
@@ -56,6 +58,15 @@ class ReachTest {
         assertNull(tmux.resumeWarning); assertNull(none.resumeWarning); assertNull(hosted.resumeWarning)
         assertNotNull(ended.resumeWarning); assertTrue(unknown.resumeWarning!!.contains("forks"))
         assertTrue(listOf(tmux, none, hosted, ended, unknown).all { it.canFork })
+    }
+
+    @Test fun `continue in a terminal with agentd resume`() {
+        val id = "002872a2-cef1-4d60-bc98-765ba5ca725f"
+        assertEquals("agentd resume 002872a2", Reach(Liveness.HOSTED, Drive.HOSTED).resumeCommand("claude", id))
+        assertEquals("agentd resume 002872a2", Reach(Liveness.ENDED, Drive.NONE).resumeCommand("pi", id))
+        assertNull(Reach(Liveness.TERMINAL, Drive.PTY).resumeCommand("claude", id)) // already there
+        assertNull(Reach(Liveness.HOSTED, Drive.HOSTED).resumeCommand("codex", id))
+        assertNull(Reach().resumeCommand("claude", id)) // even-terminal
     }
 
     @Test fun `409 session_live is typed, other 409s are not`() {

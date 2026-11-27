@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -60,6 +61,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleStartEffect
@@ -110,6 +112,7 @@ fun SessionScreen(
     var confirmSend by remember(key) { mutableStateOf<String?>(null) }
     var forkText by remember(key) { mutableStateOf<String?>(null) }
     var shellPolicyOpen by rememberSaveable { mutableStateOf(false) }
+    var resumeHereOpen by rememberSaveable { mutableStateOf(false) }
     val reach = state.meta.reach
     val voice = rememberVoice(container)
 
@@ -202,6 +205,7 @@ fun SessionScreen(
                         if (reach?.canFork == true) DropdownMenuItem(text = { Text("Fork into a new session") }, onClick = { menu = false; forkText = draft })
                         // Only agentd reports the policy (the effective/session fields on reach); even-terminal never does.
                         if (reach?.bashAutoAllow != null) DropdownMenuItem(text = { Text("Shell commands in this session") }, onClick = { menu = false; shellPolicyOpen = true })
+                        if (reach?.resumeCommand(state.meta.provider, sessionId) != null) DropdownMenuItem(text = { Text("Continue on the computer") }, onClick = { menu = false; resumeHereOpen = true })
                         DropdownMenuItem(text = { Text("Copy session id") }, onClick = { menu = false; clipboard.setText(AnnotatedString(sessionId)) })
                         DropdownMenuItem(text = { Text("Copy last reply") }, onClick = {
                             menu = false
@@ -291,6 +295,26 @@ fun SessionScreen(
             },
             confirmButton = { TextButton(onClick = { forkText = null; fork(text.trim()) }, enabled = text.isNotBlank() && !sending) { Text("Fork") } },
             dismissButton = { TextButton(onClick = { forkText = null }) { Text("Cancel") } },
+        )
+    }
+
+    if (resumeHereOpen) reach?.resumeCommand(state.meta.provider, sessionId)?.let { command ->
+        AlertDialog(
+            onDismissRequest = { resumeHereOpen = false },
+            title = { Text("Continue on the computer") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("In a terminal on the workstation, run:", style = MaterialTheme.typography.bodyMedium)
+                    SelectionContainer { Text(command, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Monospace) }
+                    Text(
+                        "The session goes on in that terminal and the server stops running it here. This app keeps " +
+                            "following it, and what you send from here is typed into the terminal as yours.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { resumeHereOpen = false; clipboard.setText(AnnotatedString(command)) }) { Text("Copy command") } },
+            dismissButton = { TextButton(onClick = { resumeHereOpen = false }) { Text("Close") } },
         )
     }
 
